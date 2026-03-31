@@ -1,25 +1,42 @@
 import type {
   BatchExportRequest,
   DepartmentOption,
+  LoginRequest,
+  LoginResponse,
   OperationDefinition,
   ProcessCardListFilters,
   ProcessCardListItem,
   ProcessCardPayload,
 } from '../../shared/types';
+import { clearAuthToken, getAuthToken } from './auth-store';
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? '';
 
 async function request<T>(input: string, init?: RequestInit): Promise<T> {
+  const token = getAuthToken();
+  const headers = new Headers(init?.headers ?? {});
+
+  if (!headers.has('Content-Type') && init?.body) {
+    headers.set('Content-Type', 'application/json');
+  }
+
+  if (token) {
+    headers.set('Authorization', `Bearer ${token}`);
+  }
+
   const response = await fetch(`${API_BASE}${input}`, {
-    headers: {
-      'Content-Type': 'application/json',
-      ...(init?.headers ?? {}),
-    },
     ...init,
+    headers,
   });
 
   if (!response.ok) {
     const message = await response.text();
+
+    if (response.status === 401 && typeof window !== 'undefined') {
+      clearAuthToken();
+      window.dispatchEvent(new Event('auth:unauthorized'));
+    }
+
     throw new Error(message || '请求失败');
   }
 
@@ -27,6 +44,19 @@ async function request<T>(input: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  login: async (payload: LoginRequest) =>
+    request<LoginResponse>('/api/auth/login', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  getCurrentUser: async () => request<{ user: LoginResponse['user'] }>('/api/auth/me'),
+
+  logout: async () =>
+    request<{ success: boolean }>('/api/auth/logout', {
+      method: 'POST',
+    }),
+
   getOperationDefinitions: async () =>
     request<{ items: OperationDefinition[] }>('/api/meta/operations'),
 
@@ -41,6 +71,7 @@ export const api = {
 
   listProcessCards: async (filters: ProcessCardListFilters) => {
     const query = new URLSearchParams();
+
     for (const [key, value] of Object.entries(filters)) {
       if (value?.trim()) {
         query.set(key, value.trim());

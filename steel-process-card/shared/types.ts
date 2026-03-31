@@ -111,6 +111,25 @@ export type BatchExportRequest = {
   ids: string[];
 };
 
+export type UserRole = 'admin' | 'user';
+
+export type AuthUser = {
+  id: string;
+  username: string;
+  displayName: string;
+  role: UserRole;
+};
+
+export type LoginRequest = {
+  username: string;
+  password: string;
+};
+
+export type LoginResponse = {
+  token: string;
+  user: AuthUser;
+};
+
 export const FIXED_REMARK =
   '适用于钢棒生产。特性符号：关键特性S，重要特性■，过程特性△。';
 

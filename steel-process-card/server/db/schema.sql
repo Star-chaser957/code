@@ -87,6 +87,24 @@ CREATE TABLE IF NOT EXISTS department_options (
   updated_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS users (
+  id TEXT PRIMARY KEY,
+  username TEXT NOT NULL UNIQUE,
+  display_name TEXT NOT NULL,
+  password_hash TEXT NOT NULL,
+  role TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS sessions (
+  token TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+);
+
 CREATE INDEX IF NOT EXISTS idx_process_cards_plan_number ON process_cards (plan_number);
 CREATE INDEX IF NOT EXISTS idx_process_cards_customer_code ON process_cards (customer_code);
 CREATE INDEX IF NOT EXISTS idx_process_cards_product_name ON process_cards (product_name);
@@ -96,3 +114,6 @@ CREATE INDEX IF NOT EXISTS idx_card_operations_card_id ON card_operations (card_
 CREATE INDEX IF NOT EXISTS idx_card_operations_operation_code ON card_operations (operation_code);
 CREATE INDEX IF NOT EXISTS idx_operation_details_type ON operation_details (detail_type);
 CREATE INDEX IF NOT EXISTS idx_department_options_sort_order ON department_options (sort_order);
+CREATE INDEX IF NOT EXISTS idx_users_username ON users (username);
+CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions (user_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions (expires_at);

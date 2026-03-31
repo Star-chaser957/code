@@ -1,18 +1,21 @@
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto';
 import path from 'node:path';
 import { readFile } from 'node:fs/promises';
 import { z } from 'zod';
 import { SqliteService } from './sqlite';
 import { createDemoProcessCard, createEmptyOperation, PROCESS_CATALOG } from '../../shared/process-catalog';
 import type {
+  AuthUser,
   BatchExportRequest,
   CardOperation,
   DepartmentOption,
+  LoginResponse,
   OperationDefinition,
   OperationDetail,
   ProcessCardListFilters,
   ProcessCardListItem,
   ProcessCardPayload,
+  UserRole,
 } from '../../shared/types';
 import { DEFAULT_DEPARTMENT_OPTIONS, FIXED_REMARK } from '../../shared/types';
 
@@ -150,6 +153,25 @@ type DepartmentOptionRow = {
   sort_order: number;
 };
 
+type UserRow = {
+  id: string;
+  username: string;
+  display_name: string;
+  password_hash: string;
+  role: UserRole;
+  created_at: string;
+  updated_at: string;
+};
+
+type SessionUserRow = {
+  id: string;
+  username: string;
+  display_name: string;
+  role: UserRole;
+  token?: string;
+  expires_at?: string;
+};
+
 const csvToArray = (value?: string) =>
   value ? value.split(',').map((item) => item.trim()).filter(Boolean) : [];
 
@@ -186,6 +208,15 @@ const toDepartmentOption = (row: DepartmentOptionRow): DepartmentOption => ({
   label: row.label,
   sortOrder: row.sort_order,
 });
+
+const toAuthUser = (row: SessionUserRow | UserRow): AuthUser => ({
+  id: row.id,
+  username: row.username,
+  displayName: row.display_name,
+  role: row.role,
+});
+
+const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 7;
 
 const toPayload = (
   card: CardRow,
@@ -266,7 +297,9 @@ export class ProcessCardRepository {
     this.sqlite.exec(schema);
     this.seedDefinitions();
     this.seedDepartmentOptions();
+    this.seedUsers();
     await this.seedDemoCard();
+    await this.sqlite.persist();
   }
 
   private seedDefinitions() {
@@ -329,6 +362,71 @@ export class ProcessCardRepository {
             VALUES (?, ?, ?, ?, ?)
           `,
           [randomUUID(), label, index + 1, now, now],
+        );
+      });
+    });
+  }
+
+  private hashPassword(password: string, salt = randomBytes(16).toString('hex')) {
+    const hash = scryptSync(password, salt, 64).toString('hex');
+    return `${salt}:${hash}`;
+  }
+
+  private verifyPassword(password: string, passwordHash: string) {
+    const [salt, storedHash] = passwordHash.split(':');
+    if (!salt || !storedHash) {
+      return false;
+    }
+
+    const computedHash = scryptSync(password, salt, 64);
+    const storedBuffer = Buffer.from(storedHash, 'hex');
+
+    if (storedBuffer.length !== computedHash.length) {
+      return false;
+    }
+
+    return timingSafeEqual(storedBuffer, computedHash);
+  }
+
+  private seedUsers() {
+    const [{ count }] = this.sqlite.query<{ count: number }>('SELECT COUNT(*) AS count FROM users');
+
+    if (count > 0) {
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const users = [
+      {
+        username: 'admin',
+        displayName: '系统管理员',
+        password: 'admin123',
+        role: 'admin' as const,
+      },
+      {
+        username: 'operator',
+        displayName: '工艺录入员',
+        password: 'operator123',
+        role: 'user' as const,
+      },
+    ];
+
+    this.sqlite.transaction(() => {
+      users.forEach((user) => {
+        this.sqlite.run(
+          `
+            INSERT INTO users (id, username, display_name, password_hash, role, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+          `,
+          [
+            randomUUID(),
+            user.username,
+            user.displayName,
+            this.hashPassword(user.password),
+            user.role,
+            now,
+            now,
+          ],
         );
       });
     });
@@ -403,6 +501,68 @@ export class ProcessCardRepository {
 
     await this.sqlite.persist();
     return this.getDepartmentOptions();
+  }
+
+  async login(username: string, password: string): Promise<LoginResponse | null> {
+    const normalizedUsername = username.trim().toLowerCase();
+    const [user] = this.sqlite.query<UserRow>(
+      `
+        SELECT id, username, display_name, password_hash, role, created_at, updated_at
+        FROM users
+        WHERE username = ?
+      `,
+      [normalizedUsername],
+    );
+
+    if (!user || !this.verifyPassword(password, user.password_hash)) {
+      return null;
+    }
+
+    const token = randomBytes(32).toString('hex');
+    const now = new Date();
+    const nowIso = now.toISOString();
+    const expiresAt = new Date(now.getTime() + SESSION_TTL_MS).toISOString();
+
+    this.sqlite.run('DELETE FROM sessions WHERE expires_at <= ?', [nowIso]);
+    this.sqlite.run(
+      `
+        INSERT INTO sessions (token, user_id, expires_at, created_at)
+        VALUES (?, ?, ?, ?)
+      `,
+      [token, user.id, expiresAt, nowIso],
+    );
+
+    await this.sqlite.persist();
+
+    return {
+      token,
+      user: toAuthUser(user),
+    };
+  }
+
+  async getAuthUserByToken(token: string): Promise<AuthUser | null> {
+    const now = new Date().toISOString();
+    const [row] = this.sqlite.query<SessionUserRow>(
+      `
+        SELECT u.id, u.username, u.display_name, u.role, s.token, s.expires_at
+        FROM sessions s
+        JOIN users u ON u.id = s.user_id
+        WHERE s.token = ?
+          AND s.expires_at > ?
+      `,
+      [token, now],
+    );
+
+    if (!row) {
+      return null;
+    }
+
+    return toAuthUser(row);
+  }
+
+  async logout(token: string) {
+    this.sqlite.run('DELETE FROM sessions WHERE token = ?', [token]);
+    await this.sqlite.persist();
   }
 
   async listProcessCards(filters: ProcessCardListFilters): Promise<ProcessCardListItem[]> {

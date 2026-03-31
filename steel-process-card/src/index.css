@@ -110,6 +110,44 @@ a {
   margin-bottom: 24px;
 }
 
+.sidebar__user {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px 18px;
+  margin-bottom: 18px;
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.62);
+  border: 1px solid rgba(24, 33, 29, 0.08);
+}
+
+.sidebar__user strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.sidebar__user p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.role-badge {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(54, 88, 71, 0.1);
+  color: var(--accent);
+  font-size: 12px;
+}
+
+.role-badge--admin {
+  background: rgba(201, 106, 50, 0.14);
+  color: var(--warm);
+}
+
 .nav-link {
   padding: 14px 16px;
   border-radius: 18px;
@@ -473,6 +511,65 @@ a {
   background:
     linear-gradient(135deg, rgba(230, 236, 228, 0.6), rgba(245, 242, 234, 0.92));
   min-height: 100vh;
+}
+
+.login-shell,
+.auth-loading {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.login-card {
+  width: min(560px, 100%);
+  padding: 28px;
+  border-radius: 28px;
+  background: rgba(252, 251, 246, 0.94);
+  border: 1px solid rgba(24, 33, 29, 0.08);
+  box-shadow: var(--shadow);
+}
+
+.login-brand {
+  display: grid;
+  gap: 18px;
+  margin-bottom: 24px;
+}
+
+.login-brand img {
+  width: 180px;
+}
+
+.login-brand h1 {
+  margin: 0;
+  font-family: Bahnschrift, "Microsoft YaHei", sans-serif;
+}
+
+.login-brand p:last-child,
+.login-hint p {
+  margin: 6px 0 0;
+  color: var(--muted);
+}
+
+.login-form {
+  display: grid;
+  gap: 14px;
+}
+
+.login-submit {
+  width: 100%;
+  margin-top: 6px;
+}
+
+.login-hint {
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px dashed rgba(24, 33, 29, 0.12);
+}
+
+.login-hint strong {
+  display: block;
+  margin-bottom: 6px;
 }
 
 .print-page {

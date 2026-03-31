@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
 import type { DepartmentOption } from '../../shared/types';
+import { useAuth } from '../auth/AuthProvider';
 import { api } from '../lib/api';
 
 export function SettingsDepartmentsPage() {
+  const { isAdmin } = useAuth();
   const [items, setItems] = useState<DepartmentOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -21,10 +23,18 @@ export function SettingsDepartmentsPage() {
   }, []);
 
   const updateLabel = (id: string, label: string) => {
+    if (!isAdmin) {
+      return;
+    }
+
     setItems((current) => current.map((item) => (item.id === id ? { ...item, label } : item)));
   };
 
   const addItem = () => {
+    if (!isAdmin) {
+      return;
+    }
+
     setItems((current) => [
       ...current,
       {
@@ -36,6 +46,10 @@ export function SettingsDepartmentsPage() {
   };
 
   const removeItem = (id: string) => {
+    if (!isAdmin) {
+      return;
+    }
+
     setItems((current) =>
       current
         .filter((item) => item.id !== id)
@@ -44,15 +58,21 @@ export function SettingsDepartmentsPage() {
   };
 
   const moveItem = (id: string, direction: -1 | 1) => {
+    if (!isAdmin) {
+      return;
+    }
+
     setItems((current) => {
       const index = current.findIndex((item) => item.id === id);
       const targetIndex = index + direction;
+
       if (index < 0 || targetIndex < 0 || targetIndex >= current.length) {
         return current;
       }
 
       const next = [...current];
       [next[index], next[targetIndex]] = [next[targetIndex], next[index]];
+
       return next.map((item, itemIndex) => ({
         ...item,
         sortOrder: itemIndex + 1,
@@ -61,6 +81,11 @@ export function SettingsDepartmentsPage() {
   };
 
   const handleSave = async () => {
+    if (!isAdmin) {
+      setError('仅管理员可以编辑系统字典。');
+      return;
+    }
+
     setSaving(true);
     try {
       const payload = items
@@ -91,27 +116,28 @@ export function SettingsDepartmentsPage() {
           <p>维护工序编辑页里的生产部门下拉建议项，保存后立即生效。</p>
         </div>
         <div className="toolbar">
-          <button type="button" className="button" onClick={addItem}>
+          <button type="button" className="button" onClick={addItem} disabled={!isAdmin}>
             新增部门
           </button>
           <button
             type="button"
             className="button button--primary"
             onClick={() => void handleSave()}
-            disabled={saving}
+            disabled={saving || !isAdmin}
           >
             {saving ? '保存中...' : '保存设置'}
           </button>
         </div>
       </header>
 
+      {!isAdmin ? <div className="state">当前账号为普通用户，可查看字典，但不能编辑。</div> : null}
       {message ? <div className="state">{message}</div> : null}
       {error ? <div className="state state--error">{error}</div> : null}
 
       <section className="panel">
         <div className="panel__header">
           <h3>部门字典</h3>
-          <span>{loading ? '加载中...' : `共 ${items.length} 条`}</span>
+          <span>{loading ? '加载中...' : `共 ${items.length} 项`}</span>
         </div>
 
         {loading ? <div className="state">正在读取部门字典...</div> : null}
@@ -133,6 +159,7 @@ export function SettingsDepartmentsPage() {
                   value={item.label}
                   placeholder="请输入部门名称"
                   aria-label={`部门名称 ${index + 1}`}
+                  disabled={!isAdmin}
                   onChange={(event) => updateLabel(item.id, event.target.value)}
                 />
 
@@ -141,7 +168,7 @@ export function SettingsDepartmentsPage() {
                     type="button"
                     className="button button--ghost button--small"
                     onClick={() => moveItem(item.id, -1)}
-                    disabled={index === 0}
+                    disabled={!isAdmin || index === 0}
                   >
                     上移
                   </button>
@@ -149,7 +176,7 @@ export function SettingsDepartmentsPage() {
                     type="button"
                     className="button button--ghost button--small"
                     onClick={() => moveItem(item.id, 1)}
-                    disabled={index === items.length - 1}
+                    disabled={!isAdmin || index === items.length - 1}
                   >
                     下移
                   </button>
@@ -157,6 +184,7 @@ export function SettingsDepartmentsPage() {
                     type="button"
                     className="button button--ghost button--small"
                     onClick={() => removeItem(item.id)}
+                    disabled={!isAdmin}
                   >
                     删除
                   </button>

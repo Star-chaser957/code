@@ -1,6 +1,9 @@
 import { NavLink, Outlet } from 'react-router-dom';
+import { useAuth } from '../auth/AuthProvider';
 
 export function PageShell() {
+  const { isAdmin, logout, user } = useAuth();
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -11,6 +14,21 @@ export function PageShell() {
             <h1>钢棒/型钢生产工艺卡系统</h1>
             <p>轻量录入、结构化查询、独立打印模板。</p>
           </div>
+        </div>
+
+        <div className="sidebar__user">
+          <div>
+            <strong>{user?.displayName ?? user?.username}</strong>
+            <p>
+              {user?.username}
+              <span className={`role-badge ${isAdmin ? 'role-badge--admin' : ''}`}>
+                {isAdmin ? '管理员' : '普通用户'}
+              </span>
+            </p>
+          </div>
+          <button type="button" className="button button--ghost button--small" onClick={() => void logout()}>
+            退出登录
+          </button>
         </div>
 
         <nav className="sidebar__nav">
@@ -26,9 +44,9 @@ export function PageShell() {
         </nav>
 
         <div className="sidebar__hint">
-          <h2>当前可维护</h2>
-          <p>生产部门已经改成系统字典，可在“系统设置”里增删改顺序。</p>
-          <p>录入页优先好填，打印页单独按 A4 竖版优化。</p>
+          <h2>当前说明</h2>
+          <p>普通登录账号可以录入、查询、编辑和打印工艺卡。</p>
+          <p>系统字典仅管理员账号可维护，普通账号进入后为只读查看。</p>
         </div>
       </aside>
 

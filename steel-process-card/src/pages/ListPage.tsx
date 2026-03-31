@@ -1,6 +1,10 @@
 import { useDeferredValue, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import type { OperationDefinition, ProcessCardListFilters, ProcessCardListItem } from '../../shared/types';
+import type {
+  OperationDefinition,
+  ProcessCardListFilters,
+  ProcessCardListItem,
+} from '../../shared/types';
 import { api } from '../lib/api';
 import { exportProcessCardsZip } from '../lib/batch-export';
 
@@ -30,6 +34,9 @@ export function ListPage() {
     () => new Map(definitions.map((item) => [item.code, item.name])),
     [definitions],
   );
+  const allVisibleIds = useMemo(() => cards.map((item) => item.id), [cards]);
+  const allVisibleSelected =
+    allVisibleIds.length > 0 && allVisibleIds.every((id) => selectedIds.includes(id));
 
   useEffect(() => {
     void api.getOperationDefinitions().then((response) => setDefinitions(response.items));
@@ -38,11 +45,14 @@ export function ListPage() {
   useEffect(() => {
     const nextFilters = { ...filters, keyword: deferredKeyword };
     setLoading(true);
+
     void api
       .listProcessCards(nextFilters)
       .then((response) => {
         setCards(response.items);
-        setSelectedIds((current) => current.filter((id) => response.items.some((item) => item.id === id)));
+        setSelectedIds((current) =>
+          current.filter((id) => response.items.some((item) => item.id === id)),
+        );
         setError('');
       })
       .catch((reason) => setError(reason instanceof Error ? reason.message : '列表加载失败'))
@@ -65,7 +75,19 @@ export function ListPage() {
   );
 
   const toggleSelected = (id: string) => {
-    setSelectedIds((current) => (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]));
+    setSelectedIds((current) =>
+      current.includes(id) ? current.filter((item) => item !== id) : [...current, id],
+    );
+  };
+
+  const toggleSelectAllVisible = () => {
+    setSelectedIds((current) => {
+      if (allVisibleSelected) {
+        return current.filter((id) => !allVisibleIds.includes(id));
+      }
+
+      return Array.from(new Set([...current, ...allVisibleIds]));
+    });
   };
 
   const handleDelete = async (id: string) => {
@@ -93,10 +115,14 @@ export function ListPage() {
         cards: selectedCards,
         definitions,
         onProgress: (current, total, card) => {
-          setBatchHint(`正在生成第 ${current}/${total} 个 PDF：${card.planNumber || card.productName}`);
+          setBatchHint(
+            `正在生成第 ${current}/${total} 份 PDF：${card.planNumber || card.productName}`,
+          );
         },
       });
-      setBatchHint(`批量导出完成，已下载包含 ${selectedCards.length} 个 PDF 文件的 ZIP 压缩包。`);
+      setBatchHint(
+        `批量导出完成，已下载包含 ${selectedCards.length} 份 PDF 文件的 ZIP 压缩包。`,
+      );
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '批量导出失败');
     } finally {
@@ -116,7 +142,15 @@ export function ListPage() {
           <Link to="/cards/new" className="button button--primary">
             新建工艺卡
           </Link>
-          <button type="button" className="button" onClick={() => void handleBatchExport()} disabled={exporting}>
+          <button type="button" className="button" onClick={toggleSelectAllVisible} disabled={cards.length === 0}>
+            {allVisibleSelected ? '取消全选' : '全选当前列表'}
+          </button>
+          <button
+            type="button"
+            className="button"
+            onClick={() => void handleBatchExport()}
+            disabled={exporting}
+          >
             {exporting ? '导出中...' : '批量导出'}
           </button>
         </div>
@@ -136,27 +170,37 @@ export function ListPage() {
               onChange={(event) => setFilters((current) => ({ ...current, keyword: event.target.value }))}
             />
           </label>
+
           <label className="field">
             <span>计划单号</span>
             <input
               value={filters.planNumber}
-              onChange={(event) => setFilters((current) => ({ ...current, planNumber: event.target.value }))}
+              onChange={(event) =>
+                setFilters((current) => ({ ...current, planNumber: event.target.value }))
+              }
             />
           </label>
+
           <label className="field">
             <span>客户代码</span>
             <input
               value={filters.customerCode}
-              onChange={(event) => setFilters((current) => ({ ...current, customerCode: event.target.value }))}
+              onChange={(event) =>
+                setFilters((current) => ({ ...current, customerCode: event.target.value }))
+              }
             />
           </label>
+
           <label className="field">
             <span>产品名称</span>
             <input
               value={filters.productName}
-              onChange={(event) => setFilters((current) => ({ ...current, productName: event.target.value }))}
+              onChange={(event) =>
+                setFilters((current) => ({ ...current, productName: event.target.value }))
+              }
             />
           </label>
+
           <label className="field">
             <span>材质</span>
             <input
@@ -164,26 +208,35 @@ export function ListPage() {
               onChange={(event) => setFilters((current) => ({ ...current, material: event.target.value }))}
             />
           </label>
+
           <label className="field">
             <span>规格</span>
             <input
               value={filters.specification}
-              onChange={(event) => setFilters((current) => ({ ...current, specification: event.target.value }))}
+              onChange={(event) =>
+                setFilters((current) => ({ ...current, specification: event.target.value }))
+              }
             />
           </label>
+
           <label className="field">
             <span>交付日期</span>
             <input
               type="date"
               value={filters.deliveryDate}
-              onChange={(event) => setFilters((current) => ({ ...current, deliveryDate: event.target.value }))}
+              onChange={(event) =>
+                setFilters((current) => ({ ...current, deliveryDate: event.target.value }))
+              }
             />
           </label>
+
           <label className="field">
             <span>包含工序</span>
             <select
               value={filters.operationCode}
-              onChange={(event) => setFilters((current) => ({ ...current, operationCode: event.target.value }))}
+              onChange={(event) =>
+                setFilters((current) => ({ ...current, operationCode: event.target.value }))
+              }
             >
               <option value="">全部</option>
               {definitions.map((item) => (
@@ -193,6 +246,7 @@ export function ListPage() {
               ))}
             </select>
           </label>
+
           <label className="field">
             <span>热处理类型</span>
             <select
@@ -215,7 +269,9 @@ export function ListPage() {
       <section className="panel">
         <div className="panel__header">
           <h3>列表结果</h3>
-          <span>{loading ? '加载中...' : `共 ${cards.length} 条`}</span>
+          <span>
+            {loading ? '加载中...' : `共 ${cards.length} 条，已选择 ${selectedIds.length} 条`}
+          </span>
         </div>
 
         {error ? <div className="state state--error">{error}</div> : null}
@@ -225,7 +281,15 @@ export function ListPage() {
           <table className="data-table">
             <thead>
               <tr>
-                <th />
+                <th>
+                  <input
+                    type="checkbox"
+                    checked={allVisibleSelected}
+                    onChange={toggleSelectAllVisible}
+                    disabled={cards.length === 0}
+                    aria-label="全选当前列表"
+                  />
+                </th>
                 <th>计划单号</th>
                 <th>客户代码</th>
                 <th>产品名称</th>
@@ -260,13 +324,25 @@ export function ListPage() {
                   <td>{item.heatTreatmentTypes.join('、')}</td>
                   <td>{new Date(item.updatedAt).toLocaleString('zh-CN')}</td>
                   <td className="table-actions">
-                    <button type="button" className="link-button" onClick={() => navigate(`/cards/${item.id}/edit`)}>
+                    <button
+                      type="button"
+                      className="link-button"
+                      onClick={() => navigate(`/cards/${item.id}/edit`)}
+                    >
                       编辑
                     </button>
-                    <button type="button" className="link-button" onClick={() => navigate(`/cards/${item.id}/print`)}>
+                    <button
+                      type="button"
+                      className="link-button"
+                      onClick={() => navigate(`/cards/${item.id}/print`)}
+                    >
                       打印
                     </button>
-                    <button type="button" className="link-button danger" onClick={() => void handleDelete(item.id)}>
+                    <button
+                      type="button"
+                      className="link-button danger"
+                      onClick={() => void handleDelete(item.id)}
+                    >
                       删除
                     </button>
                   </td>

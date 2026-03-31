@@ -4,6 +4,7 @@ import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import fastifyStatic from '@fastify/static';
 import { repository } from './db/repository';
+import { authRoutes } from './routes/auth';
 import { metaRoutes } from './routes/meta';
 import { processCardRoutes } from './routes/process-cards';
 
@@ -19,6 +20,7 @@ await server.register(cors, {
 
 server.get('/api/health', async () => ({ status: 'ok' }));
 
+await server.register(authRoutes, { prefix: '/api/auth' });
 await server.register(metaRoutes, { prefix: '/api/meta' });
 await server.register(processCardRoutes, { prefix: '/api/process-cards' });
 
