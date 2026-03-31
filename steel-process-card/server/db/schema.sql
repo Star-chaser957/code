@@ -79,6 +79,14 @@ CREATE TABLE IF NOT EXISTS operation_details (
   FOREIGN KEY (card_operation_id) REFERENCES card_operations (id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS department_options (
+  id TEXT PRIMARY KEY,
+  label TEXT NOT NULL,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_process_cards_plan_number ON process_cards (plan_number);
 CREATE INDEX IF NOT EXISTS idx_process_cards_customer_code ON process_cards (customer_code);
 CREATE INDEX IF NOT EXISTS idx_process_cards_product_name ON process_cards (product_name);
@@ -87,3 +95,4 @@ CREATE INDEX IF NOT EXISTS idx_process_cards_delivery_date ON process_cards (del
 CREATE INDEX IF NOT EXISTS idx_card_operations_card_id ON card_operations (card_id);
 CREATE INDEX IF NOT EXISTS idx_card_operations_operation_code ON card_operations (operation_code);
 CREATE INDEX IF NOT EXISTS idx_operation_details_type ON operation_details (detail_type);
+CREATE INDEX IF NOT EXISTS idx_department_options_sort_order ON department_options (sort_order);

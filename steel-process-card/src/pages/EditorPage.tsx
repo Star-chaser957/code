@@ -1,14 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { createEmptyProcessCard } from '../../shared/process-catalog';
-import {
-  FIXED_REMARK,
-  MAIN_INFO_FIELDS,
-  SIGNATURE_FIELDS,
-  type CardOperation,
-  type OperationDefinition,
-  type ProcessCardPayload,
+import type {
+  CardOperation,
+  DepartmentOption,
+  OperationDefinition,
+  ProcessCardPayload,
 } from '../../shared/types';
+import { FIXED_REMARK, MAIN_INFO_FIELDS, SIGNATURE_FIELDS } from '../../shared/types';
 import { OperationEditor } from '../components/OperationEditor';
 import { api } from '../lib/api';
 
@@ -22,6 +21,7 @@ export function EditorPage() {
   const isEditMode = Boolean(id);
 
   const [definitions, setDefinitions] = useState<OperationDefinition[]>([]);
+  const [departmentOptions, setDepartmentOptions] = useState<DepartmentOption[]>([]);
   const [card, setCard] = useState<ProcessCardPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -31,8 +31,12 @@ export function EditorPage() {
   useEffect(() => {
     const load = async () => {
       try {
-        const definitionResponse = await api.getOperationDefinitions();
+        const [definitionResponse, departmentResponse] = await Promise.all([
+          api.getOperationDefinitions(),
+          api.getDepartmentOptions(),
+        ]);
         setDefinitions(definitionResponse.items);
+        setDepartmentOptions(departmentResponse.items);
 
         if (id) {
           const detail = await api.getProcessCard(id);
@@ -245,19 +249,22 @@ export function EditorPage() {
             return null;
           }
 
-          const enabledIndex = enabledOperations.findIndex((item) => item.operationCode === operation.operationCode);
+          const enabledIndex = enabledOperations.findIndex(
+            (item) => item.operationCode === operation.operationCode,
+          );
 
           return (
             <OperationEditor
               key={operation.operationCode}
               definition={definition}
               operation={operation}
+              departmentOptions={departmentOptions}
               onToggleEnabled={() => toggleOperation(operation.operationCode)}
               onChange={(updater) => updateOperation(operation.operationCode, updater)}
               onMoveUp={() => moveOperation(operation.operationCode, -1)}
               onMoveDown={() => moveOperation(operation.operationCode, 1)}
-              disableMoveUp={!operation.enabled || enabledIndex <= 0}
-              disableMoveDown={!operation.enabled || enabledIndex === enabledOperations.length - 1}
+              disableMoveUp={enabledIndex <= 0}
+              disableMoveDown={enabledIndex === enabledOperations.length - 1}
             />
           );
         })}

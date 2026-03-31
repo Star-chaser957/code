@@ -101,6 +101,12 @@ export type ProcessCardListItem = {
   heatTreatmentTypes: string[];
 };
 
+export type DepartmentOption = {
+  id: string;
+  label: string;
+  sortOrder: number;
+};
+
 export type BatchExportRequest = {
   ids: string[];
 };
@@ -108,7 +114,7 @@ export type BatchExportRequest = {
 export const FIXED_REMARK =
   '适用于钢棒生产。特性符号：关键特性S，重要特性■，过程特性△。';
 
-export const DEPARTMENT_OPTIONS = [
+export const DEFAULT_DEPARTMENT_OPTIONS = [
   '炼钢车间',
   '轧钢车间',
   '锻造车间',

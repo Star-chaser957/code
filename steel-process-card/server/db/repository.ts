@@ -7,13 +7,14 @@ import { createDemoProcessCard, createEmptyOperation, PROCESS_CATALOG } from '..
 import type {
   BatchExportRequest,
   CardOperation,
+  DepartmentOption,
   OperationDefinition,
   OperationDetail,
   ProcessCardListFilters,
   ProcessCardListItem,
   ProcessCardPayload,
 } from '../../shared/types';
-import { FIXED_REMARK } from '../../shared/types';
+import { DEFAULT_DEPARTMENT_OPTIONS, FIXED_REMARK } from '../../shared/types';
 
 const recordSchema = z.record(z.string(), z.string());
 
@@ -64,6 +65,14 @@ const processCardSchema = z.object({
     }),
   ),
 });
+
+const departmentOptionSchema = z.object({
+  id: z.string(),
+  label: z.string().trim().min(1),
+  sortOrder: z.number().int().nonnegative(),
+});
+
+const departmentOptionListSchema = z.array(departmentOptionSchema);
 
 type CardRow = {
   id: string;
@@ -135,6 +144,12 @@ type DetailRow = {
   params_json: string;
 };
 
+type DepartmentOptionRow = {
+  id: string;
+  label: string;
+  sort_order: number;
+};
+
 const csvToArray = (value?: string) =>
   value ? value.split(',').map((item) => item.trim()).filter(Boolean) : [];
 
@@ -164,6 +179,12 @@ const toDefinition = (row: DefinitionRow, optionRows: OptionRow[]): OperationDef
       label: option.label,
       sortOrder: option.sort_order,
     })),
+});
+
+const toDepartmentOption = (row: DepartmentOptionRow): DepartmentOption => ({
+  id: row.id,
+  label: row.label,
+  sortOrder: row.sort_order,
 });
 
 const toPayload = (
@@ -244,6 +265,7 @@ export class ProcessCardRepository {
     const schema = await readFile(path.join(process.cwd(), 'server', 'db', 'schema.sql'), 'utf8');
     this.sqlite.exec(schema);
     this.seedDefinitions();
+    this.seedDepartmentOptions();
     await this.seedDemoCard();
   }
 
@@ -289,6 +311,29 @@ export class ProcessCardRepository {
     });
   }
 
+  private seedDepartmentOptions() {
+    const [{ count }] = this.sqlite.query<{ count: number }>(
+      'SELECT COUNT(*) AS count FROM department_options',
+    );
+
+    if (count > 0) {
+      return;
+    }
+
+    const now = new Date().toISOString();
+    this.sqlite.transaction(() => {
+      DEFAULT_DEPARTMENT_OPTIONS.forEach((label, index) => {
+        this.sqlite.run(
+          `
+            INSERT INTO department_options (id, label, sort_order, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+          `,
+          [randomUUID(), label, index + 1, now, now],
+        );
+      });
+    });
+  }
+
   private async seedDemoCard() {
     const [{ count }] = this.sqlite.query<{ count: number }>(
       'SELECT COUNT(*) AS count FROM process_cards',
@@ -319,6 +364,45 @@ export class ProcessCardRepository {
     );
 
     return definitionRows.map((row) => toDefinition(row, optionRows));
+  }
+
+  async getDepartmentOptions(): Promise<DepartmentOption[]> {
+    const rows = this.sqlite.query<DepartmentOptionRow>(
+      `
+        SELECT id, label, sort_order
+        FROM department_options
+        ORDER BY sort_order ASC, created_at ASC
+      `,
+    );
+    return rows.map(toDepartmentOption);
+  }
+
+  async saveDepartmentOptions(input: DepartmentOption[]) {
+    const items = departmentOptionListSchema.parse(input);
+    const now = new Date().toISOString();
+
+    this.sqlite.transaction(() => {
+      this.sqlite.run('DELETE FROM department_options');
+
+      items
+        .map((item, index) => ({
+          id: item.id || randomUUID(),
+          label: item.label.trim(),
+          sortOrder: index + 1,
+        }))
+        .forEach((item) => {
+          this.sqlite.run(
+            `
+              INSERT INTO department_options (id, label, sort_order, created_at, updated_at)
+              VALUES (?, ?, ?, ?, ?)
+            `,
+            [item.id, item.label, item.sortOrder, now, now],
+          );
+        });
+    });
+
+    await this.sqlite.persist();
+    return this.getDepartmentOptions();
   }
 
   async listProcessCards(filters: ProcessCardListFilters): Promise<ProcessCardListItem[]> {
@@ -468,7 +552,10 @@ export class ProcessCardRepository {
     const now = new Date().toISOString();
 
     this.sqlite.transaction(() => {
-      const exists = this.sqlite.query<{ id: string }>('SELECT id FROM process_cards WHERE id = ?', [cardId])[0];
+      const exists = this.sqlite.query<{ id: string }>(
+        'SELECT id FROM process_cards WHERE id = ?',
+        [cardId],
+      )[0];
 
       if (exists) {
         this.sqlite.run(
@@ -545,7 +632,9 @@ export class ProcessCardRepository {
         );
       }
 
-      for (const operation of payload.operations.filter(hasMeaningfulOperationContent).sort((a, b) => a.sortOrder - b.sortOrder)) {
+      for (const operation of payload.operations
+        .filter(hasMeaningfulOperationContent)
+        .sort((a, b) => a.sortOrder - b.sortOrder)) {
         const operationId = randomUUID();
         this.sqlite.run(
           `

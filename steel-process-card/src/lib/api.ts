@@ -1,5 +1,6 @@
 import type {
   BatchExportRequest,
+  DepartmentOption,
   OperationDefinition,
   ProcessCardListFilters,
   ProcessCardListItem,
@@ -28,6 +29,15 @@ async function request<T>(input: string, init?: RequestInit): Promise<T> {
 export const api = {
   getOperationDefinitions: async () =>
     request<{ items: OperationDefinition[] }>('/api/meta/operations'),
+
+  getDepartmentOptions: async () =>
+    request<{ items: DepartmentOption[] }>('/api/meta/departments'),
+
+  saveDepartmentOptions: async (payload: DepartmentOption[]) =>
+    request<{ items: DepartmentOption[] }>('/api/meta/departments', {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    }),
 
   listProcessCards: async (filters: ProcessCardListFilters) => {
     const query = new URLSearchParams();
