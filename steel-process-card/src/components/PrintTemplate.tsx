@@ -5,9 +5,14 @@ import { buildPrintCells, getPackagingOperation } from '../lib/print';
 type PrintTemplateProps = {
   card: ProcessCardPayload;
   definitions: OperationDefinition[];
+  logoSrc?: string;
 };
 
-export function PrintTemplate({ card, definitions }: PrintTemplateProps) {
+export function PrintTemplate({
+  card,
+  definitions,
+  logoSrc = '/logo.png',
+}: PrintTemplateProps) {
   const packaging = getPackagingOperation(card);
   const packagingParams = packaging?.details[0]?.params ?? {};
   const enabledDefinitions = definitions.filter((definition) => {
@@ -24,7 +29,7 @@ export function PrintTemplate({ card, definitions }: PrintTemplateProps) {
     <div className="print-page">
       <header className="print-header">
         <div className="print-brand">
-          <img src="/logo.png" alt="江苏星火集团" />
+          <img src={logoSrc} alt="江苏星火集团" />
           <span>XH/D-03068</span>
         </div>
         <div className="print-title">

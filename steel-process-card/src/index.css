@@ -571,6 +571,13 @@ a {
   word-break: break-word;
 }
 
+.print-page--export th,
+.print-page--export td {
+  padding-top: 5px;
+  padding-bottom: 5px;
+  line-height: 1.4;
+}
+
 .no-print {
   margin-bottom: 18px;
 }

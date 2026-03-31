@@ -2,6 +2,7 @@ import { useDeferredValue, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import type { OperationDefinition, ProcessCardListFilters, ProcessCardListItem } from '../../shared/types';
 import { api } from '../lib/api';
+import { exportProcessCardsZip } from '../lib/batch-export';
 
 export function ListPage() {
   const navigate = useNavigate();
@@ -9,6 +10,7 @@ export function ListPage() {
   const [cards, setCards] = useState<ProcessCardListItem[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
+  const [exporting, setExporting] = useState(false);
   const [error, setError] = useState('');
   const [batchHint, setBatchHint] = useState('');
   const [filters, setFilters] = useState<ProcessCardListFilters>({
@@ -82,11 +84,24 @@ export function ListPage() {
       return;
     }
 
-    const response = await api.batchExport({ ids: selectedIds });
-    response.items.forEach((item) => {
-      window.open(item.printUrl, '_blank', 'noopener,noreferrer');
-    });
-    setBatchHint('已打开打印预览页，请在浏览器中使用“另存为 PDF”完成批量导出。');
+    setExporting(true);
+    setBatchHint('正在准备批量导出...');
+
+    try {
+      const selectedCards = await Promise.all(selectedIds.map((id) => api.getProcessCard(id)));
+      await exportProcessCardsZip({
+        cards: selectedCards,
+        definitions,
+        onProgress: (current, total, card) => {
+          setBatchHint(`正在生成第 ${current}/${total} 个 PDF：${card.planNumber || card.productName}`);
+        },
+      });
+      setBatchHint(`批量导出完成，已下载包含 ${selectedCards.length} 个 PDF 文件的 ZIP 压缩包。`);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : '批量导出失败');
+    } finally {
+      setExporting(false);
+    }
   };
 
   return (
@@ -101,8 +116,8 @@ export function ListPage() {
           <Link to="/cards/new" className="button button--primary">
             新建工艺卡
           </Link>
-          <button type="button" className="button" onClick={() => void handleBatchExport()}>
-            批量导出
+          <button type="button" className="button" onClick={() => void handleBatchExport()} disabled={exporting}>
+            {exporting ? '导出中...' : '批量导出'}
           </button>
         </div>
       </header>
@@ -241,11 +256,7 @@ export function ListPage() {
                     {item.specification}
                   </td>
                   <td>{item.deliveryDate}</td>
-                  <td>
-                    {item.enabledOperationCodes
-                      .map((code) => definitionMap.get(code) ?? code)
-                      .join('、')}
-                  </td>
+                  <td>{item.enabledOperationCodes.map((code) => definitionMap.get(code) ?? code).join('、')}</td>
                   <td>{item.heatTreatmentTypes.join('、')}</td>
                   <td>{new Date(item.updatedAt).toLocaleString('zh-CN')}</td>
                   <td className="table-actions">
