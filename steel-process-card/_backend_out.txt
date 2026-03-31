@@ -1,4 +1,0 @@
-
-> steel-process-card@0.0.0 start
-> tsx server/index.ts
-
