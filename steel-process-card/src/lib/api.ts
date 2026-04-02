@@ -7,6 +7,7 @@ import type {
   ProcessCardListFilters,
   ProcessCardListItem,
   ProcessCardPayload,
+  ProductPrefillCandidate,
 } from '../../shared/types';
 import { clearAuthToken, getAuthToken } from './auth-store';
 
@@ -84,6 +85,11 @@ export const api = {
   },
 
   getProcessCard: async (id: string) => request<ProcessCardPayload>(`/api/process-cards/${id}`),
+
+  getProductPrefill: async (productName: string) =>
+    request<{ items: ProductPrefillCandidate[] }>(
+      `/api/process-cards/prefill/by-product-name?productName=${encodeURIComponent(productName)}`,
+    ),
 
   createProcessCard: async (payload: ProcessCardPayload) =>
     request<ProcessCardPayload>('/api/process-cards', {

@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { createEmptyProcessCard } from '../../shared/process-catalog';
+import { createEmptyOperation, createEmptyProcessCard } from '../../shared/process-catalog';
 import type {
   CardOperation,
   DepartmentOption,
   OperationDefinition,
   ProcessCardPayload,
+  ProductPrefillCandidate,
 } from '../../shared/types';
 import { FIXED_REMARK, MAIN_INFO_FIELDS, SIGNATURE_FIELDS } from '../../shared/types';
 import { OperationEditor } from '../components/OperationEditor';
@@ -13,6 +14,32 @@ import { api } from '../lib/api';
 
 function sortOperations(operations: CardOperation[]) {
   return [...operations].sort((left, right) => left.sortOrder - right.sortOrder);
+}
+
+function clonePrefillOperations(
+  definitions: OperationDefinition[],
+  operations: CardOperation[],
+): CardOperation[] {
+  const sourceMap = new Map(operations.map((operation) => [operation.operationCode, operation]));
+
+  return definitions.map((definition) => {
+    const source = sourceMap.get(definition.code);
+
+    if (!source) {
+      return createEmptyOperation(definition);
+    }
+
+    return {
+      ...source,
+      id: undefined,
+      remark: '',
+      details: source.details.map((detail, index) => ({
+        ...detail,
+        id: undefined,
+        detailSeq: index + 1,
+      })),
+    };
+  });
 }
 
 export function EditorPage() {
@@ -27,6 +54,9 @@ export function EditorPage() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [prefillLoading, setPrefillLoading] = useState(false);
+  const [prefillCandidates, setPrefillCandidates] = useState<ProductPrefillCandidate[]>([]);
+  const [selectedPrefillId, setSelectedPrefillId] = useState('');
 
   useEffect(() => {
     const load = async () => {
@@ -35,6 +65,7 @@ export function EditorPage() {
           api.getOperationDefinitions(),
           api.getDepartmentOptions(),
         ]);
+
         setDefinitions(definitionResponse.items);
         setDepartmentOptions(departmentResponse.items);
 
@@ -55,6 +86,37 @@ export function EditorPage() {
 
     void load();
   }, [id]);
+
+  useEffect(() => {
+    if (isEditMode || !card?.productName.trim()) {
+      setPrefillCandidates([]);
+      setSelectedPrefillId('');
+      setPrefillLoading(false);
+      return;
+    }
+
+    const handle = window.setTimeout(() => {
+      setPrefillLoading(true);
+      void api
+        .getProductPrefill(card.productName.trim())
+        .then((response) => {
+          setPrefillCandidates(response.items);
+          setSelectedPrefillId(response.items[0]?.sourceCardId ?? '');
+        })
+        .catch(() => {
+          setPrefillCandidates([]);
+          setSelectedPrefillId('');
+        })
+        .finally(() => setPrefillLoading(false));
+    }, 350);
+
+    return () => window.clearTimeout(handle);
+  }, [card?.productName, isEditMode]);
+
+  const selectedPrefillCandidate = useMemo(
+    () => prefillCandidates.find((item) => item.sourceCardId === selectedPrefillId) ?? null,
+    [prefillCandidates, selectedPrefillId],
+  );
 
   const enabledOperations = useMemo(
     () => sortOperations((card?.operations ?? []).filter((item) => item.enabled)),
@@ -100,6 +162,7 @@ export function EditorPage() {
       const enabled = sortOperations(current.operations.filter((item) => item.enabled));
       const index = enabled.findIndex((item) => item.operationCode === operationCode);
       const targetIndex = index + direction;
+
       if (index < 0 || targetIndex < 0 || targetIndex >= enabled.length) {
         return current;
       }
@@ -119,6 +182,21 @@ export function EditorPage() {
         ),
       };
     });
+  };
+
+  const handleApplyPrefill = () => {
+    if (!card || !selectedPrefillCandidate) {
+      return;
+    }
+
+    setCard({
+      ...card,
+      operations: clonePrefillOperations(definitions, selectedPrefillCandidate.operations),
+    });
+    setMessage(
+      `已带入计划单号 ${selectedPrefillCandidate.planNumber} 的历史工艺卡工序配置。`,
+    );
+    setError('');
   };
 
   const handleSave = async () => {
@@ -159,22 +237,7 @@ export function EditorPage() {
         <div>
           <p className="page__eyebrow">Card Editor</p>
           <h2>{isEditMode ? '编辑工艺卡' : '新建工艺卡'}</h2>
-          <p>录入页按“主信息 → 工序卡片 → 签字备注”组织，填写更快，打印另做版式。</p>
-        </div>
-        <div className="toolbar">
-          {card.id ? (
-            <Link to={`/cards/${card.id}/print`} className="button">
-              打印预览
-            </Link>
-          ) : null}
-          <button
-            type="button"
-            className="button button--primary"
-            onClick={() => void handleSave()}
-            disabled={saving}
-          >
-            {saving ? '保存中...' : '保存工艺卡'}
-          </button>
+          <p>录入页面按“主信息 → 工序卡片 → 签字备注 → 底部操作”组织，填写更顺手。</p>
         </div>
       </header>
 
@@ -185,6 +248,7 @@ export function EditorPage() {
         <div className="panel__header">
           <h3>主信息</h3>
         </div>
+
         <div className="form-grid">
           {MAIN_INFO_FIELDS.map((field) => (
             <label
@@ -212,6 +276,40 @@ export function EditorPage() {
             </label>
           ))}
         </div>
+
+        {!isEditMode && card.productName.trim() ? (
+          <div className="prefill-card">
+            <div>
+              <strong>同产品历史工序配置</strong>
+              <p>
+                {prefillLoading
+                  ? '正在查找同产品历史工艺卡...'
+                  : prefillCandidates.length > 0
+                    ? `找到 ${prefillCandidates.length} 张同产品历史工艺卡，请手动选择一张带入。`
+                    : '当前还没有找到同产品名称的历史工艺卡。'}
+              </p>
+            </div>
+
+            {prefillCandidates.length > 0 ? (
+              <div className="prefill-actions">
+                <label className="field">
+                  <span>历史工艺卡</span>
+                  <select value={selectedPrefillId} onChange={(event) => setSelectedPrefillId(event.target.value)}>
+                    {prefillCandidates.map((item) => (
+                      <option key={item.sourceCardId} value={item.sourceCardId}>
+                        {item.planNumber} | {new Date(item.updatedAt).toLocaleString('zh-CN')}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <button type="button" className="button" onClick={handleApplyPrefill}>
+                  带入所选工序配置
+                </button>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
       </section>
 
       <section className="panel">
@@ -291,6 +389,30 @@ export function EditorPage() {
             <span>备注</span>
             <textarea className="textarea--fixed" value={FIXED_REMARK} readOnly />
           </label>
+        </div>
+      </section>
+
+      <section className="panel page-actions">
+        <div className="page-actions__inner">
+          <div>
+            <h3>操作</h3>
+            <p>建议填写完签字与备注后，在这里统一保存或进入打印预览。</p>
+          </div>
+          <div className="toolbar">
+            {card.id ? (
+              <Link to={`/cards/${card.id}/print`} className="button">
+                打印预览
+              </Link>
+            ) : null}
+            <button
+              type="button"
+              className="button button--primary"
+              onClick={() => void handleSave()}
+              disabled={saving}
+            >
+              {saving ? '保存中...' : '保存工艺卡'}
+            </button>
+          </div>
         </div>
       </section>
     </div>

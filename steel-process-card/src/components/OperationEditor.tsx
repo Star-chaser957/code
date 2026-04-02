@@ -4,6 +4,7 @@ import type {
   DepartmentOption,
   OperationDefinition,
   OperationDetail,
+  OperationFieldDefinition,
 } from '../../shared/types';
 
 type OperationEditorProps = {
@@ -18,6 +19,59 @@ type OperationEditorProps = {
   disableMoveDown: boolean;
 };
 
+const SPECIAL_CHARACTERISTIC_OPTIONS = ['', '△', 'S', '■'];
+
+function getVisibleFields(definition: OperationDefinition, detail: OperationDetail) {
+  return definition.fieldConfig.filter((field) => {
+    if (field.showForDetailTypes && !field.showForDetailTypes.includes(detail.detailType)) {
+      return false;
+    }
+
+    if (field.hideForDetailTypes?.includes(detail.detailType)) {
+      return false;
+    }
+
+    return true;
+  });
+}
+
+function renderFieldInput(
+  field: OperationFieldDefinition,
+  detail: OperationDetail,
+  onChange: (detail: OperationDetail) => void,
+) {
+  const value = detail.params[field.key] ?? '';
+  const placeholder = field.placeholder ?? `请输入${field.label}`;
+
+  const updateValue = (nextValue: string) =>
+    onChange({
+      ...detail,
+      params: {
+        ...detail.params,
+        [field.key]: nextValue,
+      },
+    });
+
+  if (field.inputType === 'select') {
+    return (
+      <select value={value} onChange={(event) => updateValue(event.target.value)}>
+        <option value="">请选择</option>
+        {(field.options ?? []).map((option) => (
+          <option key={option} value={option}>
+            {option}
+          </option>
+        ))}
+      </select>
+    );
+  }
+
+  if (field.inputType === 'textarea') {
+    return <textarea value={value} placeholder={placeholder} onChange={(event) => updateValue(event.target.value)} />;
+  }
+
+  return <input value={value} placeholder={placeholder} onChange={(event) => updateValue(event.target.value)} />;
+}
+
 function DetailFields({
   definition,
   detail,
@@ -27,44 +81,54 @@ function DetailFields({
   detail: OperationDetail;
   onChange: (detail: OperationDetail) => void;
 }) {
+  const visibleFields = getVisibleFields(definition, detail);
+
   return (
     <div className="detail-grid">
-      {definition.detailMode === 'multiple' ? (
-        <label className="field">
-          <span>类型</span>
-          <select
-            value={detail.detailType}
-            onChange={(event) => onChange({ ...detail, detailType: event.target.value })}
-          >
-            {definition.optionCatalog.map((option) => (
-              <option key={option.optionCode} value={option.label}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </label>
-      ) : null}
-
-      {definition.fieldConfig.map((field) => (
+      {visibleFields.map((field) => (
         <label className="field" key={`${detail.detailSeq}-${field.key}`}>
           <span>{field.label}</span>
-          <input
-            value={detail.params[field.key] ?? ''}
-            placeholder={field.placeholder ?? `请输入${field.label}`}
-            onChange={(event) =>
-              onChange({
-                ...detail,
-                params: {
-                  ...detail.params,
-                  [field.key]: event.target.value,
-                },
-              })
-            }
-          />
+          {renderFieldInput(field, detail, onChange)}
         </label>
       ))}
     </div>
   );
+}
+
+function toggleSteelmakingOption(current: CardOperation, definition: OperationDefinition, optionCode: string) {
+  const primaryCodes = definition.optionCatalog.slice(0, 3).map((item) => item.optionCode);
+  const slagCode = definition.optionCatalog[3]?.optionCode;
+  const next = new Set(current.selectedOptionCodes);
+
+  if (primaryCodes.includes(optionCode)) {
+    const hadSelectedPrimary = next.has(optionCode);
+    const hadSlag = slagCode ? next.has(slagCode) : false;
+    primaryCodes.forEach((code) => next.delete(code));
+
+    if (!hadSelectedPrimary) {
+      next.add(optionCode);
+    }
+
+    if (hadSlag && slagCode) {
+      next.add(slagCode);
+    }
+
+    return Array.from(next);
+  }
+
+  if (slagCode && optionCode === slagCode) {
+    if (next.has(optionCode)) {
+      next.delete(optionCode);
+      return Array.from(next);
+    }
+
+    next.add(optionCode);
+    if (!primaryCodes.some((code) => next.has(code))) {
+      next.add(primaryCodes[0]);
+    }
+  }
+
+  return Array.from(next);
 }
 
 export function OperationEditor({
@@ -80,6 +144,7 @@ export function OperationEditor({
 }: OperationEditorProps) {
   const selectedOptionCodes = new Set(operation.selectedOptionCodes);
   const departmentListId = `department-options-${definition.code}`;
+  const isHeatTreatment = definition.code === 'heat-treatment';
 
   return (
     <section className="operation-card is-enabled">
@@ -120,13 +185,18 @@ export function OperationEditor({
 
         <label className="field">
           <span>特殊特性</span>
-          <input
+          <select
             value={operation.specialCharacteristic}
-            placeholder="如 S / ■ / △"
             onChange={(event) =>
               onChange((current) => ({ ...current, specialCharacteristic: event.target.value }))
             }
-          />
+          >
+            {SPECIAL_CHARACTERISTIC_OPTIONS.map((option) => (
+              <option key={option || 'blank'} value={option}>
+                {option}
+              </option>
+            ))}
+          </select>
         </label>
 
         <label className="field">
@@ -141,55 +211,103 @@ export function OperationEditor({
 
       {definition.optionCatalog.length > 0 ? (
         <div className="option-group">
-          <p>{definition.detailMode === 'multiple' ? '可选处理类型' : '工艺/制造方式'}</p>
-          <div className="chip-grid">
-            {definition.optionCatalog.map((option) => {
-              const checked =
-                definition.detailMode === 'multiple'
-                  ? operation.details.some((detail) => detail.detailType === option.label)
-                  : selectedOptionCodes.has(option.optionCode);
+          <p>{isHeatTreatment ? '处理类型' : '工艺/制造方式'}</p>
 
-              const toggle = () => {
-                if (definition.detailMode === 'multiple') {
-                  return;
-                }
+          {isHeatTreatment ? (
+            <div className="chip-grid chip-grid--toolbar">
+              {definition.optionCatalog.map((option) => {
+                const checked = operation.details.some((detail) => detail.detailType === option.label);
 
-                onChange((current) => {
-                  const next = new Set(current.selectedOptionCodes);
-                  if (definition.detailMode === 'single') {
-                    next.clear();
-                  }
-                  if (next.has(option.optionCode)) {
-                    next.delete(option.optionCode);
-                  } else {
-                    next.add(option.optionCode);
-                  }
-                  return {
-                    ...current,
-                    selectedOptionCodes: Array.from(next),
-                  };
-                });
-              };
+                return (
+                  <button
+                    type="button"
+                    key={option.optionCode}
+                    className={`chip-button ${checked ? 'is-active' : ''}`}
+                    onClick={() =>
+                      onChange((current) => {
+                        const exists = current.details.some((detail) => detail.detailType === option.label);
+                        const nextDetails = exists
+                          ? current.details.filter((detail) => detail.detailType !== option.label)
+                          : [
+                              ...current.details,
+                              createEmptyDetail(definition, current.details.length + 1, option.label),
+                            ];
 
-              return (
-                <label className={`chip ${checked ? 'is-active' : ''}`} key={option.optionCode}>
-                  <input
-                    type="checkbox"
-                    checked={checked}
-                    disabled={definition.detailMode === 'multiple'}
-                    onChange={toggle}
-                  />
-                  <span>{option.label}</span>
-                </label>
-              );
-            })}
-          </div>
+                        const orderedDetails = definition.optionCatalog
+                          .map((catalogOption) =>
+                            nextDetails.find((detail) => detail.detailType === catalogOption.label),
+                          )
+                          .filter((detail): detail is OperationDetail => Boolean(detail))
+                          .map((detail, index) => ({ ...detail, detailSeq: index + 1 }));
+
+                        return {
+                          ...current,
+                          details: orderedDetails,
+                        };
+                      })
+                    }
+                  >
+                    {option.label}
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="chip-grid">
+              {definition.optionCatalog.map((option) => {
+                const checked = selectedOptionCodes.has(option.optionCode);
+
+                return (
+                  <label className={`chip ${checked ? 'is-active' : ''}`} key={option.optionCode}>
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() =>
+                        onChange((current) => {
+                          if (definition.code === 'steelmaking') {
+                            return {
+                              ...current,
+                              selectedOptionCodes: toggleSteelmakingOption(current, definition, option.optionCode),
+                            };
+                          }
+
+                          const next = new Set(current.selectedOptionCodes);
+
+                          if (definition.detailMode === 'single') {
+                            next.clear();
+                          }
+
+                          if (next.has(option.optionCode)) {
+                            next.delete(option.optionCode);
+                          } else {
+                            next.add(option.optionCode);
+                          }
+
+                          return {
+                            ...current,
+                            selectedOptionCodes: Array.from(next),
+                          };
+                        })
+                      }
+                    />
+                    <span>{option.label}</span>
+                  </label>
+                );
+              })}
+            </div>
+          )}
+
+          {definition.code === 'steelmaking' ? (
+            <div className="operation-card__placeholder">
+              选择“电渣”时，会自动保留前面三项中的一项；产品要求只填写一套。
+            </div>
+          ) : null}
         </div>
       ) : null}
 
       {definition.detailMode === 'checklist' ? (
         <div className="operation-card__placeholder">
-          <span>该工序使用多选项目结构化保存，打印时会按勾选项展示。</span>
+          该工序使用多选项目结构化保存，打印时会按勾选项目展示。
         </div>
       ) : null}
 
@@ -197,43 +315,20 @@ export function OperationEditor({
         <div className="detail-section">
           <div className="detail-section__header">
             <h4>{definition.detailLabel}</h4>
-            {definition.detailMode === 'multiple' ? (
-              <button
-                type="button"
-                className="button button--ghost"
-                onClick={() =>
-                  onChange((current) => ({
-                    ...current,
-                    details: [...current.details, createEmptyDetail(definition, current.details.length + 1)],
-                  }))
-                }
-              >
-                新增一条明细
-              </button>
-            ) : null}
           </div>
 
           <div className="detail-stack">
+            {operation.details.length === 0 ? (
+              <div className="operation-card__placeholder">
+                {isHeatTreatment ? '请先选择处理类型，再填写对应明细。' : '请填写该工序的产品要求。'}
+              </div>
+            ) : null}
+
             {operation.details.map((detail, index) => (
               <div className="detail-card" key={`${definition.code}-${detail.detailSeq}-${index}`}>
                 {definition.detailMode === 'multiple' ? (
                   <div className="detail-card__toolbar">
-                    <strong>明细 {index + 1}</strong>
-                    <button
-                      type="button"
-                      className="button button--ghost"
-                      onClick={() =>
-                        onChange((current) => ({
-                          ...current,
-                          details: current.details
-                            .filter((_, currentIndex) => currentIndex !== index)
-                            .map((item, nextIndex) => ({ ...item, detailSeq: nextIndex + 1 })),
-                        }))
-                      }
-                      disabled={operation.details.length === 1}
-                    >
-                      删除
-                    </button>
+                    <strong>{detail.detailType || `明细 ${index + 1}`}</strong>
                   </div>
                 ) : null}
 
@@ -260,9 +355,7 @@ export function OperationEditor({
         <textarea
           className="textarea--large"
           value={operation.otherRequirements}
-          onChange={(event) =>
-            onChange((current) => ({ ...current, otherRequirements: event.target.value }))
-          }
+          onChange={(event) => onChange((current) => ({ ...current, otherRequirements: event.target.value }))}
         />
       </label>
     </section>

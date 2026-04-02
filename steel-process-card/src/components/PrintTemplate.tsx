@@ -82,7 +82,7 @@ export function PrintTemplate({
             <th className="col-department">生产部门</th>
             <th className="col-special">特殊特性</th>
             <th className="col-method">工艺/制造</th>
-            <th className="col-quality">质量要求</th>
+            <th className="col-quality">产品要求</th>
             <th className="col-delivery">交付时间</th>
             <th className="col-other">其他要求</th>
           </tr>

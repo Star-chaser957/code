@@ -15,6 +15,7 @@ import type {
   ProcessCardListFilters,
   ProcessCardListItem,
   ProcessCardPayload,
+  ProductPrefillCandidate,
   UserRole,
 } from '../../shared/types';
 import { DEFAULT_DEPARTMENT_OPTIONS, FIXED_REMARK } from '../../shared/types';
@@ -276,7 +277,7 @@ const toPayload = (
       sortOrder: saved.sort_order,
       enabled: Boolean(saved.enabled),
       department: saved.department,
-      specialCharacteristic: saved.special_characteristic,
+      specialCharacteristic: saved.special_characteristic || '',
       deliveryTime: saved.delivery_time,
       otherRequirements: saved.other_requirements,
       remark: saved.remark,
@@ -303,19 +304,11 @@ export class ProcessCardRepository {
   }
 
   private seedDefinitions() {
-    const [{ count }] = this.sqlite.query<{ count: number }>(
-      'SELECT COUNT(*) AS count FROM operation_definitions',
-    );
-
-    if (count > 0) {
-      return;
-    }
-
     this.sqlite.transaction(() => {
       for (const definition of PROCESS_CATALOG) {
         this.sqlite.run(
           `
-            INSERT INTO operation_definitions
+            INSERT OR REPLACE INTO operation_definitions
             (code, name, default_order, detail_mode, allows_multiple_details, detail_label, field_config_json)
             VALUES (?, ?, ?, ?, ?, ?, ?)
           `,
@@ -328,6 +321,14 @@ export class ProcessCardRepository {
             definition.detailLabel,
             JSON.stringify(definition.fieldConfig),
           ],
+        );
+
+        this.sqlite.run(
+          `
+            DELETE FROM operation_option_definitions
+            WHERE operation_code = ?
+          `,
+          [definition.code],
         );
 
         for (const option of definition.optionCatalog) {
@@ -695,6 +696,70 @@ export class ProcessCardRepository {
     );
 
     return toPayload(card, definitions, operationRows, selectedOptionRows, detailRows);
+  }
+
+  async findProductPrefills(productName: string): Promise<ProductPrefillCandidate[]> {
+    const normalized = productName.trim();
+    if (!normalized) {
+      return [];
+    }
+
+    const cards = this.sqlite.query<CardRow>(
+      `
+        SELECT *
+        FROM process_cards
+        WHERE TRIM(product_name) = ?
+        ORDER BY updated_at DESC
+      `,
+      [normalized],
+    );
+
+    if (cards.length === 0) {
+      return [];
+    }
+
+    const definitions = await this.getOperationDefinitions();
+
+    return cards.map((card) => {
+      const operationRows = this.sqlite.query<OperationRow>(
+        'SELECT * FROM card_operations WHERE card_id = ? ORDER BY sort_order ASC',
+        [card.id],
+      );
+      const selectedOptionRows = this.sqlite.query<SelectedOptionRow>(
+        `
+          SELECT card_operation_id, option_code
+          FROM card_operation_selected_options
+          WHERE card_operation_id IN (SELECT id FROM card_operations WHERE card_id = ?)
+        `,
+        [card.id],
+      );
+      const detailRows = this.sqlite.query<DetailRow>(
+        `
+          SELECT *
+          FROM operation_details
+          WHERE card_operation_id IN (SELECT id FROM card_operations WHERE card_id = ?)
+          ORDER BY detail_seq ASC
+        `,
+        [card.id],
+      );
+
+      const payload = toPayload(card, definitions, operationRows, selectedOptionRows, detailRows);
+
+      return {
+        sourceCardId: card.id,
+        productName: payload.productName,
+        planNumber: payload.planNumber,
+        updatedAt: payload.updatedAt ?? card.updated_at,
+        operations: payload.operations.map((operation) => ({
+          ...operation,
+          id: undefined,
+          details: operation.details.map((detail) => ({
+            ...detail,
+            id: undefined,
+          })),
+        })),
+      };
+    });
   }
 
   async saveProcessCard(input: ProcessCardPayload) {

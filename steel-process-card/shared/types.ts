@@ -5,6 +5,10 @@ export type OperationFieldDefinition = {
   label: string;
   unit?: string;
   placeholder?: string;
+  inputType?: 'text' | 'select' | 'textarea';
+  options?: string[];
+  showForDetailTypes?: string[];
+  hideForDetailTypes?: string[];
 };
 
 export type OperationOptionDefinition = {
@@ -109,6 +113,14 @@ export type DepartmentOption = {
 
 export type BatchExportRequest = {
   ids: string[];
+};
+
+export type ProductPrefillCandidate = {
+  sourceCardId: string;
+  productName: string;
+  planNumber: string;
+  updatedAt: string;
+  operations: CardOperation[];
 };
 
 export type UserRole = 'admin' | 'user';
