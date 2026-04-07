@@ -1,4 +1,5 @@
 import type {
+  CardPermissions,
   CardOperation,
   OperationDefinition,
   OperationDetail,
@@ -377,6 +378,26 @@ export const createEmptyProcessCard = (
   reviewedDate: '',
   approvedBy: '',
   approvedDate: '',
+  status: 'draft',
+  currentStep: 'prepare',
+  currentHandlerUserId: '',
+  currentHandlerName: '',
+  createdByUserId: '',
+  createdByName: '',
+  confirmedUserId: '',
+  reviewedUserId: '',
+  approvedUserId: '',
+  versionNo: 1,
+  sourceCardId: '',
+  submittedAt: '',
+  lockedAt: '',
+  lastReturnComment: '',
+  approvalLogs: [],
+  permissions: {
+    canEdit: true,
+    canDelete: true,
+    availableActions: [],
+  } satisfies CardPermissions,
   operations: definitions.map(createEmptyOperation),
 });
 

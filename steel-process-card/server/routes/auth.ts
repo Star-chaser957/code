@@ -12,7 +12,7 @@ const loginSchema = z.object({
 export const authRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post('/login', async (request, reply) => {
     const payload = loginSchema.parse(request.body as LoginRequest);
-    const session = await repository.login(payload.username, payload.password);
+    const session = await repository.login(payload.username, payload.password, request.ip);
 
     if (!session) {
       reply.code(401);
@@ -39,7 +39,7 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
 
     const token = getBearerToken(request);
     if (token) {
-      await repository.logout(token);
+      await repository.logout(token, user, request.ip);
     }
 
     return { success: true };

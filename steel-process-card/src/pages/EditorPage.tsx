@@ -2,14 +2,25 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { createEmptyOperation, createEmptyProcessCard } from '../../shared/process-catalog';
 import type {
+  ApprovalAction,
   CardOperation,
   DepartmentOption,
   OperationDefinition,
   ProcessCardPayload,
   ProductPrefillCandidate,
+  UserSummary,
 } from '../../shared/types';
-import { FIXED_REMARK, MAIN_INFO_FIELDS, SIGNATURE_FIELDS } from '../../shared/types';
+import {
+  APPROVAL_ACTION_COMMENT_REQUIRED,
+  APPROVAL_ACTION_LABELS,
+  CARD_STATUS_LABELS,
+  FIXED_REMARK,
+  MAIN_INFO_FIELDS,
+  SIGNATURE_FIELDS,
+} from '../../shared/types';
+import { useAuth } from '../auth/AuthProvider';
 import { OperationEditor } from '../components/OperationEditor';
+import { PrintTemplate } from '../components/PrintTemplate';
 import { api } from '../lib/api';
 
 function sortOperations(operations: CardOperation[]) {
@@ -45,15 +56,18 @@ function clonePrefillOperations(
 export function EditorPage() {
   const navigate = useNavigate();
   const { id } = useParams();
+  const { user, hasWorkflowRole } = useAuth();
   const isEditMode = Boolean(id);
 
   const [definitions, setDefinitions] = useState<OperationDefinition[]>([]);
   const [departmentOptions, setDepartmentOptions] = useState<DepartmentOption[]>([]);
+  const [users, setUsers] = useState<UserSummary[]>([]);
   const [card, setCard] = useState<ProcessCardPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [approvalComment, setApprovalComment] = useState('');
   const [prefillLoading, setPrefillLoading] = useState(false);
   const [prefillCandidates, setPrefillCandidates] = useState<ProductPrefillCandidate[]>([]);
   const [selectedPrefillId, setSelectedPrefillId] = useState('');
@@ -61,19 +75,24 @@ export function EditorPage() {
   useEffect(() => {
     const load = async () => {
       try {
-        const [definitionResponse, departmentResponse] = await Promise.all([
+        const [definitionResponse, departmentResponse, userResponse] = await Promise.all([
           api.getOperationDefinitions(),
           api.getDepartmentOptions(),
+          api.getUsers(),
         ]);
 
         setDefinitions(definitionResponse.items);
         setDepartmentOptions(departmentResponse.items);
+        setUsers(userResponse.items);
 
         if (id) {
           const detail = await api.getProcessCard(id);
           setCard({ ...detail, remark: FIXED_REMARK });
         } else {
-          setCard(createEmptyProcessCard(definitionResponse.items));
+          const emptyCard = createEmptyProcessCard(definitionResponse.items);
+          emptyCard.createdByUserId = user?.id ?? '';
+          emptyCard.createdByName = user?.displayName ?? user?.username ?? '';
+          setCard(emptyCard);
         }
 
         setError('');
@@ -85,7 +104,7 @@ export function EditorPage() {
     };
 
     void load();
-  }, [id]);
+  }, [id, user?.displayName, user?.id, user?.username]);
 
   useEffect(() => {
     if (isEditMode || !card?.productName.trim()) {
@@ -123,6 +142,27 @@ export function EditorPage() {
     [card],
   );
 
+  const canEdit = !isEditMode || Boolean(card?.permissions.canEdit);
+  const showApprovalPreview =
+    isEditMode && !canEdit && Boolean(card?.permissions.availableActions.length);
+
+  const availableActions = useMemo<ApprovalAction[]>(() => {
+    if (isEditMode) {
+      return card?.permissions.availableActions ?? [];
+    }
+
+    return hasWorkflowRole('prepare') ? ['submit_confirm'] : [];
+  }, [card?.permissions.availableActions, hasWorkflowRole, isEditMode]);
+
+  const selectableUsers = useMemo(
+    () => ({
+      confirm: users.filter((item) => item.role === 'admin' || item.workflowRoles.includes('confirm')),
+      review: users.filter((item) => item.role === 'admin' || item.workflowRoles.includes('review')),
+      approve: users.filter((item) => item.role === 'admin' || item.workflowRoles.includes('approve')),
+    }),
+    [users],
+  );
+
   const updateOperation = (operationCode: string, updater: (current: CardOperation) => CardOperation) => {
     setCard((current) => {
       if (!current) {
@@ -139,6 +179,10 @@ export function EditorPage() {
   };
 
   const toggleOperation = (operationCode: string) => {
+    if (!canEdit) {
+      return;
+    }
+
     setCard((current) => {
       if (!current) {
         return current;
@@ -154,6 +198,10 @@ export function EditorPage() {
   };
 
   const moveOperation = (operationCode: string, direction: -1 | 1) => {
+    if (!canEdit) {
+      return;
+    }
+
     setCard((current) => {
       if (!current) {
         return current;
@@ -193,10 +241,21 @@ export function EditorPage() {
       ...card,
       operations: clonePrefillOperations(definitions, selectedPrefillCandidate.operations),
     });
-    setMessage(
-      `已带入计划单号 ${selectedPrefillCandidate.planNumber} 的历史工艺卡工序配置。`,
-    );
+    setMessage(`已带入计划单号 ${selectedPrefillCandidate.planNumber} 的历史工序配置。`);
     setError('');
+  };
+
+  const persistCard = async (currentCard: ProcessCardPayload) => {
+    const payload = { ...currentCard, remark: FIXED_REMARK };
+    const saved =
+      isEditMode && id ? await api.updateProcessCard(id, payload) : await api.createProcessCard(payload);
+    setCard({ ...saved, remark: FIXED_REMARK });
+
+    if (!isEditMode) {
+      navigate(`/cards/${saved.id}/edit`, { replace: true });
+    }
+
+    return saved;
   };
 
   const handleSave = async () => {
@@ -206,18 +265,42 @@ export function EditorPage() {
 
     setSaving(true);
     try {
-      const payload = { ...card, remark: FIXED_REMARK };
-      const saved =
-        isEditMode && id ? await api.updateProcessCard(id, payload) : await api.createProcessCard(payload);
-      setCard({ ...saved, remark: FIXED_REMARK });
+      await persistCard(card);
       setMessage('工艺卡已保存。');
       setError('');
-
-      if (!isEditMode) {
-        navigate(`/cards/${saved.id}/edit`, { replace: true });
-      }
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '保存失败');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleWorkflowAction = async (action: ApprovalAction) => {
+    if (!card) {
+      return;
+    }
+
+    setSaving(true);
+    try {
+      let latest = card;
+      if (!latest.id || latest.permissions.canEdit) {
+        latest = await persistCard(latest);
+      }
+
+      if (APPROVAL_ACTION_COMMENT_REQUIRED.includes(action) && !approvalComment.trim()) {
+        throw new Error('当前动作需要填写修改意见。');
+      }
+
+      const updated = await api.performApprovalAction(latest.id!, {
+        action,
+        comment: approvalComment.trim(),
+      });
+      setCard(updated);
+      setApprovalComment('');
+      setMessage(`流程动作“${APPROVAL_ACTION_LABELS[action]}”已完成。`);
+      setError('');
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : '流程提交失败');
     } finally {
       setSaving(false);
     }
@@ -232,189 +315,382 @@ export function EditorPage() {
   }
 
   return (
-    <div className="page">
+    <div className="page page--editor">
       <header className="page__header">
         <div>
-          <p className="page__eyebrow">Card Editor</p>
-          <h2>{isEditMode ? '编辑工艺卡' : '新建工艺卡'}</h2>
-          <p>录入页面按“主信息 → 工序卡片 → 签字备注 → 底部操作”组织，填写更顺手。</p>
+          <p className="page__eyebrow">Card Workflow</p>
+          <h2>{isEditMode ? '工艺卡处理' : '新建工艺卡'}</h2>
+          <p>
+            当前状态：<strong>{CARD_STATUS_LABELS[card.status]}</strong>
+            {card.currentHandlerName ? `，当前处理人：${card.currentHandlerName}` : ''}
+          </p>
         </div>
       </header>
 
       {message ? <div className="state">{message}</div> : null}
       {error ? <div className="state state--error">{error}</div> : null}
 
-      <section className="panel">
-        <div className="panel__header">
-          <h3>主信息</h3>
-        </div>
+      {showApprovalPreview ? (
+        <>
+          <section className="panel">
+            <div className="panel__header">
+              <h3>审阅表单</h3>
+              <span>审核和批准视角默认按打印版式审阅，便于直接对照纸质卡审批。</span>
+            </div>
+            <div className="editor-print-preview">
+              <PrintTemplate card={card} definitions={definitions} />
+            </div>
+          </section>
 
-        <div className="form-grid">
-          {MAIN_INFO_FIELDS.map((field) => (
-            <label
-              key={field.key}
-              className={`field ${field.type === 'textarea' ? 'field--full' : ''}`}
-            >
-              <span>{field.label}</span>
-              {field.type === 'textarea' ? (
-                <textarea
-                  className={field.large ? 'textarea--large' : undefined}
-                  value={card[field.key] as string}
-                  onChange={(event) =>
-                    setCard((current) => current && { ...current, [field.key]: event.target.value })
-                  }
-                />
-              ) : (
-                <input
-                  type={field.type === 'date' ? 'date' : 'text'}
-                  value={card[field.key] as string}
-                  onChange={(event) =>
-                    setCard((current) => current && { ...current, [field.key]: event.target.value })
-                  }
-                />
-              )}
-            </label>
-          ))}
-        </div>
-
-        {!isEditMode && card.productName.trim() ? (
-          <div className="prefill-card">
-            <div>
-              <strong>同产品历史工序配置</strong>
-              <p>
-                {prefillLoading
-                  ? '正在查找同产品历史工艺卡...'
-                  : prefillCandidates.length > 0
-                    ? `找到 ${prefillCandidates.length} 张同产品历史工艺卡，请手动选择一张带入。`
-                    : '当前还没有找到同产品名称的历史工艺卡。'}
-              </p>
+          <section className="panel">
+            <div className="panel__header">
+              <h3>流程摘要</h3>
+              <span>这里只保留审批时最需要关注的信息。</span>
+            </div>
+            <div className="review-summary-grid">
+              <label className="field">
+                <span>计划单号</span>
+                <input value={card.planNumber} readOnly />
+              </label>
+              <label className="field">
+                <span>产品名称</span>
+                <input value={card.productName} readOnly />
+              </label>
+              <label className="field">
+                <span>当前状态</span>
+                <input value={CARD_STATUS_LABELS[card.status]} readOnly />
+              </label>
+              <label className="field">
+                <span>当前处理人</span>
+                <input value={card.currentHandlerName || '-'} readOnly />
+              </label>
+              <label className="field">
+                <span>编制</span>
+                <input value={`${card.preparedBy || ''} ${card.preparedDate || ''}`.trim() || '-'} readOnly />
+              </label>
+              <label className="field">
+                <span>确认</span>
+                <input value={`${card.confirmedBy || ''} ${card.confirmedDate || ''}`.trim() || '-'} readOnly />
+              </label>
+              <label className="field">
+                <span>审核</span>
+                <input value={`${card.reviewedBy || ''} ${card.reviewedDate || ''}`.trim() || '-'} readOnly />
+              </label>
+              <label className="field">
+                <span>批准</span>
+                <input value={`${card.approvedBy || ''} ${card.approvedDate || ''}`.trim() || '-'} readOnly />
+              </label>
+              <label className="field field--full">
+                <span>最近退回意见</span>
+                <textarea className="textarea--fixed" value={card.lastReturnComment || '-'} readOnly />
+              </label>
+            </div>
+          </section>
+        </>
+      ) : (
+        <>
+          <section className="panel panel--compact">
+            <div className="panel__header">
+              <h3>主信息</h3>
             </div>
 
-            {prefillCandidates.length > 0 ? (
-              <div className="prefill-actions">
-                <label className="field">
-                  <span>历史工艺卡</span>
-                  <select value={selectedPrefillId} onChange={(event) => setSelectedPrefillId(event.target.value)}>
-                    {prefillCandidates.map((item) => (
-                      <option key={item.sourceCardId} value={item.sourceCardId}>
-                        {item.planNumber} | {new Date(item.updatedAt).toLocaleString('zh-CN')}
-                      </option>
-                    ))}
-                  </select>
+            <div className="form-grid form-grid--editor">
+              {MAIN_INFO_FIELDS.map((field) => (
+                <label key={field.key} className={`field ${field.type === 'textarea' ? 'field--full' : ''}`}>
+                  <span>{field.label}</span>
+                  {field.type === 'textarea' ? (
+                    <textarea
+                      className={field.large ? 'textarea--large' : undefined}
+                      disabled={!canEdit}
+                      value={card[field.key] as string}
+                      onChange={(event) =>
+                        setCard((current) => current && { ...current, [field.key]: event.target.value })
+                      }
+                    />
+                  ) : (
+                    <input
+                      type={field.type === 'date' ? 'date' : 'text'}
+                      disabled={!canEdit}
+                      value={card[field.key] as string}
+                      onChange={(event) =>
+                        setCard((current) => current && { ...current, [field.key]: event.target.value })
+                      }
+                    />
+                  )}
                 </label>
+              ))}
+            </div>
 
-                <button type="button" className="button" onClick={handleApplyPrefill}>
-                  带入所选工序配置
-                </button>
+            {!isEditMode && canEdit && card.productName.trim() ? (
+              <div className="prefill-card">
+                <div>
+                  <strong>同产品历史工序配置</strong>
+                  <p>
+                    {prefillLoading
+                      ? '正在查询同产品历史工艺卡...'
+                      : prefillCandidates.length > 0
+                        ? `找到 ${prefillCandidates.length} 张历史工艺卡，请选择其中一张带入。`
+                        : '当前还没有找到同产品名称的历史工艺卡。'}
+                  </p>
+                </div>
+
+                {prefillCandidates.length > 0 ? (
+                  <div className="prefill-actions">
+                    <label className="field">
+                      <span>历史工艺卡</span>
+                      <select value={selectedPrefillId} onChange={(event) => setSelectedPrefillId(event.target.value)}>
+                        {prefillCandidates.map((item) => (
+                          <option key={item.sourceCardId} value={item.sourceCardId}>
+                            {item.planNumber} | {new Date(item.updatedAt).toLocaleString('zh-CN')}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <button type="button" className="button" onClick={handleApplyPrefill}>
+                      带入所选工序配置
+                    </button>
+                  </div>
+                ) : null}
               </div>
             ) : null}
-          </div>
-        ) : null}
-      </section>
+          </section>
 
-      <section className="panel">
-        <div className="panel__header">
-          <h3>工序启用</h3>
-          <span>点选启用后，下方卡片立即可编辑。</span>
-        </div>
-        <div className="chip-grid chip-grid--toolbar">
-          {definitions.map((definition) => {
-            const operation = card.operations.find((item) => item.operationCode === definition.code);
-            const enabled = operation?.enabled ?? false;
+          <section className="panel panel--compact">
+            <div className="panel__header">
+              <h3>工序启用</h3>
+              <span>启用后下方会显示对应编辑卡片。</span>
+            </div>
+            <div className="chip-grid chip-grid--toolbar chip-grid--compact">
+              {definitions.map((definition) => {
+                const operation = card.operations.find((item) => item.operationCode === definition.code);
+                const enabled = operation?.enabled ?? false;
 
-            return (
-              <button
-                type="button"
-                key={definition.code}
-                className={`chip-button ${enabled ? 'is-active' : ''}`}
-                onClick={() => toggleOperation(definition.code)}
-              >
-                {definition.name}
-              </button>
-            );
-          })}
-        </div>
-      </section>
+                return (
+                  <button
+                    type="button"
+                    key={definition.code}
+                    className={`chip-button ${enabled ? 'is-active' : ''}`}
+                    disabled={!canEdit}
+                    onClick={() => toggleOperation(definition.code)}
+                  >
+                    {definition.name}
+                  </button>
+                );
+              })}
+            </div>
+          </section>
 
-      <section className="stack">
-        {enabledOperations.length === 0 ? (
-          <div className="state">请先在上方选择需要启用的工序，已启用工序会显示在这里供你填写。</div>
-        ) : null}
-
-        {enabledOperations.map((operation) => {
-          const definition = definitions.find((item) => item.code === operation.operationCode);
-          if (!definition) {
-            return null;
-          }
-
-          const enabledIndex = enabledOperations.findIndex(
-            (item) => item.operationCode === operation.operationCode,
-          );
-
-          return (
-            <OperationEditor
-              key={operation.operationCode}
-              definition={definition}
-              operation={operation}
-              departmentOptions={departmentOptions}
-              onToggleEnabled={() => toggleOperation(operation.operationCode)}
-              onChange={(updater) => updateOperation(operation.operationCode, updater)}
-              onMoveUp={() => moveOperation(operation.operationCode, -1)}
-              onMoveDown={() => moveOperation(operation.operationCode, 1)}
-              disableMoveUp={enabledIndex <= 0}
-              disableMoveDown={enabledIndex === enabledOperations.length - 1}
-            />
-          );
-        })}
-      </section>
-
-      <section className="panel">
-        <div className="panel__header">
-          <h3>签字与备注</h3>
-        </div>
-        <div className="form-grid">
-          {SIGNATURE_FIELDS.map((field) => (
-            <label key={field.key} className="field">
-              <span>{field.label}</span>
-              <input
-                type={field.type === 'date' ? 'date' : 'text'}
-                value={card[field.key] as string}
-                onChange={(event) =>
-                  setCard((current) => current && { ...current, [field.key]: event.target.value })
-                }
-              />
-            </label>
-          ))}
-          <label className="field field--full">
-            <span>备注</span>
-            <textarea className="textarea--fixed" value={FIXED_REMARK} readOnly />
-          </label>
-        </div>
-      </section>
-
-      <section className="panel page-actions">
-        <div className="page-actions__inner">
-          <div>
-            <h3>操作</h3>
-            <p>建议填写完签字与备注后，在这里统一保存或进入打印预览。</p>
-          </div>
-          <div className="toolbar">
-            {card.id ? (
-              <Link to={`/cards/${card.id}/print`} className="button">
-                打印预览
-              </Link>
+          <section className="stack stack--compact">
+            {enabledOperations.length === 0 ? (
+              <div className="state">请先选择需要启用的工序，已启用工序会显示在这里供你填写。</div>
             ) : null}
-            <button
-              type="button"
-              className="button button--primary"
-              onClick={() => void handleSave()}
-              disabled={saving}
-            >
-              {saving ? '保存中...' : '保存工艺卡'}
-            </button>
+
+            {enabledOperations.map((operation) => {
+              const definition = definitions.find((item) => item.code === operation.operationCode);
+              if (!definition) {
+                return null;
+              }
+
+              const enabledIndex = enabledOperations.findIndex(
+                (item) => item.operationCode === operation.operationCode,
+              );
+
+              return (
+                <OperationEditor
+                  key={operation.operationCode}
+                  definition={definition}
+                  operation={operation}
+                  departmentOptions={departmentOptions}
+                  readOnly={!canEdit}
+                  onToggleEnabled={() => toggleOperation(operation.operationCode)}
+                  onChange={(updater) => updateOperation(operation.operationCode, updater)}
+                  onMoveUp={() => moveOperation(operation.operationCode, -1)}
+                  onMoveDown={() => moveOperation(operation.operationCode, 1)}
+                  disableMoveUp={enabledIndex <= 0}
+                  disableMoveDown={enabledIndex === enabledOperations.length - 1}
+                />
+              );
+            })}
+          </section>
+        </>
+      )}
+
+      {!showApprovalPreview ? (
+        <section className="panel panel--compact">
+          <div className="panel__header">
+            <h3>流程与签字</h3>
+            <span>签字信息由流程动作自动回填，不再手工编辑。</span>
           </div>
-        </div>
-      </section>
+
+          <div className="form-grid form-grid--editor">
+            <label className="field">
+              <span>编制人</span>
+              <input value={card.createdByName || user?.displayName || ''} readOnly />
+            </label>
+            <label className="field">
+              <span>确认人</span>
+              <select
+                disabled={!canEdit}
+                value={card.confirmedUserId}
+                onChange={(event) =>
+                  setCard((current) => current && { ...current, confirmedUserId: event.target.value })
+                }
+              >
+                <option value="">请选择</option>
+                {selectableUsers.confirm.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.displayName}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              <span>审核人</span>
+              <select
+                disabled={!canEdit}
+                value={card.reviewedUserId}
+                onChange={(event) =>
+                  setCard((current) => current && { ...current, reviewedUserId: event.target.value })
+                }
+              >
+                <option value="">请选择</option>
+                {selectableUsers.review.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.displayName}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              <span>批准人</span>
+              <select
+                disabled={!canEdit}
+                value={card.approvedUserId}
+                onChange={(event) =>
+                  setCard((current) => current && { ...current, approvedUserId: event.target.value })
+                }
+              >
+                <option value="">请选择</option>
+                {selectableUsers.approve.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.displayName}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            {SIGNATURE_FIELDS.map((field) => (
+              <label key={field.key} className="field">
+                <span>{field.label}</span>
+                <input value={String(card[field.key] ?? '')} readOnly />
+              </label>
+            ))}
+
+            <label className="field field--full">
+              <span>最近退回意见</span>
+              <textarea className="textarea--fixed" value={card.lastReturnComment || '-'} readOnly />
+            </label>
+
+            <label className="field field--full">
+              <span>备注</span>
+              <textarea className="textarea--fixed" value={FIXED_REMARK} readOnly />
+            </label>
+          </div>
+        </section>
+      ) : null}
+
+      {!showApprovalPreview ? (
+        <>
+          <section className="panel panel--compact">
+            <div className="panel__header">
+              <h3>审批历史</h3>
+            </div>
+            {card.approvalLogs.length === 0 ? (
+              <div className="state">当前还没有审批记录。</div>
+            ) : (
+              <div className="timeline">
+                {card.approvalLogs.map((log) => (
+                  <div key={log.id} className="timeline__item">
+                    <strong>{APPROVAL_ACTION_LABELS[log.action]}</strong>
+                    <span>{log.actorDisplayName}</span>
+                    <span>{new Date(log.createdAt).toLocaleString('zh-CN')}</span>
+                    {log.comment ? <p>{log.comment}</p> : null}
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+
+          <section className="panel panel--compact page-actions">
+            <div className="page-actions__inner">
+              <div>
+                <h3>操作</h3>
+                <p>编制和确认可编辑表单；审核和批准以打印版式审阅后直接审批。</p>
+              </div>
+              <div className="workflow-actions">
+                <label className="field field--full">
+                  <span>审批意见</span>
+                  <textarea
+                    className="textarea--fixed"
+                    value={approvalComment}
+                    onChange={(event) => setApprovalComment(event.target.value)}
+                    placeholder="退回或驳回时请填写明确修改意见。"
+                  />
+                </label>
+
+                <div className="toolbar">
+                  {card.id ? (
+                    <Link to={`/cards/${card.id}/print`} className="button">
+                      打印预览
+                    </Link>
+                  ) : null}
+                  {canEdit ? (
+                    <button
+                      type="button"
+                      className="button button--primary"
+                      onClick={() => void handleSave()}
+                      disabled={saving}
+                    >
+                      {saving ? '处理中...' : '保存工艺卡'}
+                    </button>
+                  ) : null}
+                  {availableActions.map((action) => (
+                    <button
+                      key={action}
+                      type="button"
+                      className="button"
+                      disabled={saving}
+                      onClick={() => void handleWorkflowAction(action)}
+                    >
+                      {APPROVAL_ACTION_LABELS[action]}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </section>
+        </>
+      ) : (
+        <section className="panel panel--compact page-actions">
+          <div className="page-actions__inner">
+            <div>
+              <h3>审阅审批</h3>
+              <p>审核和批准请在预览页直接查看 PDF 版式、填写意见并完成审批。</p>
+            </div>
+            <div className="toolbar">
+              {card.id ? (
+                <Link to={`/cards/${card.id}/print`} className="button button--primary">
+                  进入预览审批页
+                </Link>
+              ) : null}
+              <Link to="/" className="button button--ghost">
+                返回列表
+              </Link>
+            </div>
+          </div>
+        </section>
+      )}
     </div>
   );
 }

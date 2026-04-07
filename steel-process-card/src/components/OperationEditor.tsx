@@ -11,6 +11,7 @@ type OperationEditorProps = {
   definition: OperationDefinition;
   operation: CardOperation;
   departmentOptions: DepartmentOption[];
+  readOnly?: boolean;
   onToggleEnabled: () => void;
   onChange: (updater: (current: CardOperation) => CardOperation) => void;
   onMoveUp: () => void;
@@ -38,6 +39,7 @@ function getVisibleFields(definition: OperationDefinition, detail: OperationDeta
 function renderFieldInput(
   field: OperationFieldDefinition,
   detail: OperationDetail,
+  disabled: boolean,
   onChange: (detail: OperationDetail) => void,
 ) {
   const value = detail.params[field.key] ?? '';
@@ -54,7 +56,7 @@ function renderFieldInput(
 
   if (field.inputType === 'select') {
     return (
-      <select value={value} onChange={(event) => updateValue(event.target.value)}>
+      <select value={value} disabled={disabled} onChange={(event) => updateValue(event.target.value)}>
         <option value="">请选择</option>
         {(field.options ?? []).map((option) => (
           <option key={option} value={option}>
@@ -66,19 +68,35 @@ function renderFieldInput(
   }
 
   if (field.inputType === 'textarea') {
-    return <textarea value={value} placeholder={placeholder} onChange={(event) => updateValue(event.target.value)} />;
+    return (
+      <textarea
+        value={value}
+        disabled={disabled}
+        placeholder={placeholder}
+        onChange={(event) => updateValue(event.target.value)}
+      />
+    );
   }
 
-  return <input value={value} placeholder={placeholder} onChange={(event) => updateValue(event.target.value)} />;
+  return (
+    <input
+      value={value}
+      disabled={disabled}
+      placeholder={placeholder}
+      onChange={(event) => updateValue(event.target.value)}
+    />
+  );
 }
 
 function DetailFields({
   definition,
   detail,
+  disabled,
   onChange,
 }: {
   definition: OperationDefinition;
   detail: OperationDetail;
+  disabled: boolean;
   onChange: (detail: OperationDetail) => void;
 }) {
   const visibleFields = getVisibleFields(definition, detail);
@@ -88,7 +106,7 @@ function DetailFields({
       {visibleFields.map((field) => (
         <label className="field" key={`${detail.detailSeq}-${field.key}`}>
           <span>{field.label}</span>
-          {renderFieldInput(field, detail, onChange)}
+          {renderFieldInput(field, detail, disabled, onChange)}
         </label>
       ))}
     </div>
@@ -135,6 +153,7 @@ export function OperationEditor({
   definition,
   operation,
   departmentOptions,
+  readOnly = false,
   onToggleEnabled,
   onChange,
   onMoveUp,
@@ -155,13 +174,13 @@ export function OperationEditor({
         </div>
 
         <div className="operation-card__actions">
-          <button type="button" className="button button--ghost" onClick={onMoveUp} disabled={disableMoveUp}>
+          <button type="button" className="button button--ghost" onClick={onMoveUp} disabled={readOnly || disableMoveUp}>
             上移
           </button>
-          <button type="button" className="button button--ghost" onClick={onMoveDown} disabled={disableMoveDown}>
+          <button type="button" className="button button--ghost" onClick={onMoveDown} disabled={readOnly || disableMoveDown}>
             下移
           </button>
-          <button type="button" className="button" onClick={onToggleEnabled}>
+          <button type="button" className="button" onClick={onToggleEnabled} disabled={readOnly}>
             已启用
           </button>
         </div>
@@ -173,6 +192,7 @@ export function OperationEditor({
           <input
             list={departmentListId}
             value={operation.department}
+            disabled={readOnly}
             placeholder="可选择，也可手动输入"
             onChange={(event) => onChange((current) => ({ ...current, department: event.target.value }))}
           />
@@ -187,6 +207,7 @@ export function OperationEditor({
           <span>特殊特性</span>
           <select
             value={operation.specialCharacteristic}
+            disabled={readOnly}
             onChange={(event) =>
               onChange((current) => ({ ...current, specialCharacteristic: event.target.value }))
             }
@@ -204,6 +225,7 @@ export function OperationEditor({
           <input
             type="date"
             value={operation.deliveryTime}
+            disabled={readOnly}
             onChange={(event) => onChange((current) => ({ ...current, deliveryTime: event.target.value }))}
           />
         </label>
@@ -222,6 +244,7 @@ export function OperationEditor({
                   <button
                     type="button"
                     key={option.optionCode}
+                    disabled={readOnly}
                     className={`chip-button ${checked ? 'is-active' : ''}`}
                     onClick={() =>
                       onChange((current) => {
@@ -262,6 +285,7 @@ export function OperationEditor({
                     <input
                       type="checkbox"
                       checked={checked}
+                      disabled={readOnly}
                       onChange={() =>
                         onChange((current) => {
                           if (definition.code === 'steelmaking') {
@@ -299,16 +323,14 @@ export function OperationEditor({
 
           {definition.code === 'steelmaking' ? (
             <div className="operation-card__placeholder">
-              选择“电渣”时，会自动保留前面三项中的一项；产品要求只填写一套。
+              选择“电渣”时，会自动保留前三项中的一项；产品要求只填写一套。
             </div>
           ) : null}
         </div>
       ) : null}
 
       {definition.detailMode === 'checklist' ? (
-        <div className="operation-card__placeholder">
-          该工序使用多选项目结构化保存，打印时会按勾选项目展示。
-        </div>
+        <div className="operation-card__placeholder">该工序使用多选项目结构化保存，打印时按勾选项目展示。</div>
       ) : null}
 
       {definition.detailMode !== 'checklist' ? (
@@ -335,6 +357,7 @@ export function OperationEditor({
                 <DetailFields
                   definition={definition}
                   detail={detail}
+                  disabled={readOnly}
                   onChange={(nextDetail) =>
                     onChange((current) => ({
                       ...current,
@@ -355,6 +378,7 @@ export function OperationEditor({
         <textarea
           className="textarea--large"
           value={operation.otherRequirements}
+          disabled={readOnly}
           onChange={(event) => onChange((current) => ({ ...current, otherRequirements: event.target.value }))}
         />
       </label>

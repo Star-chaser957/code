@@ -48,9 +48,11 @@ export const buildPrintCells = (definition: OperationDefinition, operation: Card
       processLines: definition.optionCatalog.map(
         (option) => `${chosenTypes.includes(option.label) ? filledMark : emptyMark}${option.label}`,
       ),
-      qualityLines: operation.details.map((detail) => {
-        const summary = compactFieldText(definition.fieldConfig, detail.params, detail.detailType).join(' / ');
-        return summary ? `${detail.detailType}：${summary}` : `${detail.detailType}`;
+      qualityLines: operation.details.flatMap((detail) => {
+        const lines = compactFieldText(definition.fieldConfig, detail.params, detail.detailType);
+        return lines.length > 0
+          ? [`${detail.detailType}：`, ...lines.map((line) => `  ${line}`)]
+          : [detail.detailType];
       }),
     };
   }

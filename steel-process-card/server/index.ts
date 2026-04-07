@@ -1,16 +1,21 @@
 import path from 'node:path';
 import { access } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import fastifyStatic from '@fastify/static';
 import { repository } from './db/repository';
 import { authRoutes } from './routes/auth';
+import { adminRoutes } from './routes/admin';
 import { metaRoutes } from './routes/meta';
 import { processCardRoutes } from './routes/process-cards';
 
 const server = Fastify({
   logger: false,
 });
+
+const serverRoot = path.dirname(fileURLToPath(import.meta.url));
+const projectRoot = path.resolve(serverRoot, '..');
 
 await repository.init();
 
@@ -22,9 +27,10 @@ server.get('/api/health', async () => ({ status: 'ok' }));
 
 await server.register(authRoutes, { prefix: '/api/auth' });
 await server.register(metaRoutes, { prefix: '/api/meta' });
+await server.register(adminRoutes, { prefix: '/api/admin' });
 await server.register(processCardRoutes, { prefix: '/api/process-cards' });
 
-const distPath = path.join(process.cwd(), 'dist');
+const distPath = path.join(projectRoot, 'dist');
 const indexFile = path.join(distPath, 'index.html');
 
 try {

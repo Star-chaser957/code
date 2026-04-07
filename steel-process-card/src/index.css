@@ -57,7 +57,7 @@ a {
 
 .app-shell {
   display: grid;
-  grid-template-columns: 320px minmax(0, 1fr);
+  grid-template-columns: 280px minmax(0, 1fr);
   min-height: 100vh;
 }
 
@@ -272,6 +272,19 @@ a {
   gap: 14px;
 }
 
+.filter-grid--compact {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.form-grid--compact {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.form-grid--editor {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 12px;
+}
+
 .field {
   display: grid;
   gap: 7px;
@@ -322,6 +335,10 @@ a {
   gap: 12px;
 }
 
+.chip-grid--compact {
+  gap: 8px;
+}
+
 .chip {
   display: inline-flex;
   align-items: center;
@@ -347,6 +364,10 @@ a {
 .detail-stack {
   display: grid;
   gap: 16px;
+}
+
+.stack--compact {
+  gap: 12px;
 }
 
 .operation-card.is-enabled {
@@ -458,8 +479,100 @@ a {
   position: relative;
 }
 
+.page--editor {
+  gap: 16px;
+}
+
+.page--editor .operation-card,
+.panel--compact {
+  padding: 16px;
+  border-radius: 20px;
+}
+
+.page--editor .panel__header {
+  margin-bottom: 12px;
+}
+
+.page--editor .chip-button {
+  padding: 9px 13px;
+  border-radius: 12px;
+}
+
 .table-wrap {
   overflow: auto;
+}
+
+.admin-user-create,
+.admin-user-list,
+.audit-log-list {
+  display: grid;
+  gap: 16px;
+}
+
+.admin-role-selector {
+  display: grid;
+  gap: 8px;
+}
+
+.admin-role-selector > span {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.admin-switch {
+  width: fit-content;
+}
+
+.admin-user-card,
+.audit-log-card {
+  padding: 16px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.64);
+  border: 1px solid rgba(24, 33, 29, 0.08);
+}
+
+.admin-user-card__header,
+.admin-user-card__footer,
+.audit-log-card__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.admin-user-card__header p,
+.audit-log-card__header p,
+.audit-log-card__detail {
+  margin: 6px 0 0;
+  color: var(--muted);
+}
+
+.admin-password-field {
+  min-width: min(240px, 100%);
+}
+
+.audit-log-card__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 18px;
+  margin-top: 12px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.audit-log-card__changes {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.audit-log-change {
+  display: grid;
+  grid-template-columns: minmax(90px, 140px) minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(54, 88, 71, 0.06);
 }
 
 .settings-list {
@@ -537,6 +650,12 @@ a {
   white-space: nowrap;
 }
 
+.table-note {
+  margin-top: 6px;
+  color: var(--danger);
+  font-size: 12px;
+}
+
 .link-button {
   border: 0;
   background: transparent;
@@ -556,6 +675,82 @@ a {
   min-height: 100vh;
   print-color-adjust: exact;
   -webkit-print-color-adjust: exact;
+}
+
+.timeline {
+  display: grid;
+  gap: 12px;
+}
+
+.timeline__item {
+  display: grid;
+  gap: 4px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(24, 33, 29, 0.08);
+}
+
+.timeline__item strong {
+  color: var(--accent);
+}
+
+.timeline__item p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.workflow-actions {
+  display: grid;
+  gap: 14px;
+  width: min(620px, 100%);
+}
+
+.workflow-actions--full {
+  width: 100%;
+}
+
+.editor-print-preview {
+  overflow: auto;
+  padding: 8px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.55);
+  border: 1px solid rgba(24, 33, 29, 0.08);
+}
+
+.editor-print-preview .print-page {
+  transform-origin: top center;
+  box-shadow: none;
+}
+
+.review-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.print-review-layout {
+  width: min(1680px, 100%);
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: minmax(0, 210mm) minmax(320px, 420px);
+  gap: 20px;
+  align-items: start;
+}
+
+.print-review-document {
+  min-width: 0;
+}
+
+.print-review-sidebar {
+  display: grid;
+  gap: 18px;
+  position: sticky;
+  top: 28px;
+}
+
+.print-review-panel {
+  box-shadow: none;
 }
 
 .login-shell,
@@ -786,8 +981,23 @@ a {
   .filter-grid,
   .form-grid,
   .panel-grid,
-  .detail-grid {
+  .detail-grid,
+  .review-summary-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .form-grid--editor,
+  .form-grid--compact,
+  .filter-grid--compact {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .print-review-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .print-review-sidebar {
+    position: static;
   }
 }
 
@@ -804,6 +1014,9 @@ a {
   .prefill-card,
   .prefill-actions,
   .page-actions__inner,
+  .admin-user-card__header,
+  .admin-user-card__footer,
+  .audit-log-card__header,
   .operation-card__header,
   .detail-section__header,
   .detail-card__toolbar {
@@ -814,7 +1027,14 @@ a {
   .filter-grid,
   .form-grid,
   .panel-grid,
-  .detail-grid {
+  .detail-grid,
+  .review-summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .form-grid--editor,
+  .form-grid--compact,
+  .filter-grid--compact {
     grid-template-columns: 1fr;
   }
 
@@ -833,6 +1053,10 @@ a {
   }
 
   .print-guide__grid {
+    grid-template-columns: 1fr;
+  }
+
+  .audit-log-change {
     grid-template-columns: 1fr;
   }
 }
@@ -862,5 +1086,10 @@ a {
     padding: 0;
     margin: 0;
     box-shadow: none;
+  }
+
+  .print-review-layout {
+    display: block;
+    width: auto;
   }
 }

@@ -1,4 +1,4 @@
-import { FIXED_REMARK } from '../../shared/types';
+import { CARD_STATUS_LABELS, FIXED_REMARK } from '../../shared/types';
 import type { OperationDefinition, ProcessCardPayload } from '../../shared/types';
 import { buildPrintCells, getPackagingOperation } from '../lib/print';
 
@@ -29,12 +29,12 @@ export function PrintTemplate({
     <div className="print-page">
       <header className="print-header">
         <div className="print-brand">
-          <img src={logoSrc} alt="江苏星火集团" />
+          <img src={logoSrc} alt="Steel Process Card" />
           <span>XH/D-03068</span>
         </div>
         <div className="print-title">
           <h1>钢棒/型钢 生产工艺卡</h1>
-          <span>{card.cardNo ? `No. ${card.cardNo}` : ''}</span>
+          <span>{CARD_STATUS_LABELS[card.status]}</span>
         </div>
       </header>
 

@@ -1,13 +1,23 @@
 import { randomBytes, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto';
 import path from 'node:path';
 import { readFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import { SqliteService } from './sqlite';
 import { createDemoProcessCard, createEmptyOperation, PROCESS_CATALOG } from '../../shared/process-catalog';
 import type {
+  ApprovalAction,
+  ApprovalActionRequest,
+  ApprovalLog,
+  AuditLogChange,
+  AuditLogCategory,
+  AuditLogEntry,
+  AuditLogFilters,
   AuthUser,
   BatchExportRequest,
   CardOperation,
+  CardPermissions,
+  CardWorkflowStatus,
   DepartmentOption,
   LoginResponse,
   OperationDefinition,
@@ -17,8 +27,22 @@ import type {
   ProcessCardPayload,
   ProductPrefillCandidate,
   UserRole,
+  UserAccount,
+  UserAccountCreateRequest,
+  UserAccountUpdateRequest,
+  UserSummary,
+  UserPasswordResetRequest,
+  WorkflowRole,
+  WorkflowStep,
 } from '../../shared/types';
-import { DEFAULT_DEPARTMENT_OPTIONS, FIXED_REMARK } from '../../shared/types';
+import {
+  APPROVAL_ACTION_COMMENT_REQUIRED,
+  DEFAULT_DEPARTMENT_OPTIONS,
+  FIXED_REMARK,
+} from '../../shared/types';
+
+const serverRoot = path.dirname(fileURLToPath(import.meta.url));
+const projectRoot = path.resolve(serverRoot, '..', '..');
 
 const recordSchema = z.record(z.string(), z.string());
 
@@ -45,6 +69,10 @@ const processCardSchema = z.object({
   reviewedDate: z.string(),
   approvedBy: z.string(),
   approvedDate: z.string(),
+  confirmedUserId: z.string(),
+  reviewedUserId: z.string(),
+  approvedUserId: z.string(),
+  sourceCardId: z.string().optional(),
   operations: z.array(
     z.object({
       id: z.string().optional(),
@@ -78,6 +106,49 @@ const departmentOptionSchema = z.object({
 
 const departmentOptionListSchema = z.array(departmentOptionSchema);
 
+const userAccountCreateSchema = z.object({
+  username: z.string().trim().min(3),
+  displayName: z.string().trim().min(1),
+  password: z.string().min(6),
+  role: z.enum(['admin', 'user']),
+  workflowRoles: z.array(z.enum(['prepare', 'confirm', 'review', 'approve'])),
+  isActive: z.boolean().default(true),
+});
+
+const userAccountUpdateSchema = z.object({
+  displayName: z.string().trim().min(1),
+  role: z.enum(['admin', 'user']),
+  workflowRoles: z.array(z.enum(['prepare', 'confirm', 'review', 'approve'])),
+});
+
+const userPasswordResetSchema = z.object({
+  password: z.string().min(6),
+});
+
+const userActiveToggleSchema = z.object({
+  isActive: z.boolean(),
+});
+
+const auditLogFiltersSchema = z.object({
+  category: z.enum(['auth', 'process_card', 'approval', 'dictionary', 'user']).optional(),
+  actorUserId: z.string().optional(),
+  keyword: z.string().optional(),
+});
+
+const approvalActionSchema = z.object({
+  action: z.enum([
+    'submit_confirm',
+    'return_prepare',
+    'submit_review',
+    'reject_to_prepare',
+    'reject_to_confirm',
+    'submit_approve',
+    'reject_to_review',
+    'approve',
+  ]),
+  comment: z.string().optional(),
+});
+
 type CardRow = {
   id: string;
   card_no: string;
@@ -101,6 +172,18 @@ type CardRow = {
   reviewed_date: string;
   approved_by: string;
   approved_date: string;
+  status: CardWorkflowStatus;
+  current_step: WorkflowStep;
+  current_handler_user_id: string;
+  created_by_user_id: string;
+  confirmed_user_id: string;
+  reviewed_user_id: string;
+  approved_user_id: string;
+  submitted_at: string;
+  locked_at: string;
+  version_no: number;
+  source_card_id: string;
+  last_return_comment: string;
   created_at: string;
   updated_at: string;
 };
@@ -158,20 +241,47 @@ type UserRow = {
   id: string;
   username: string;
   display_name: string;
-  password_hash: string;
+  password_hash?: string;
   role: UserRole;
-  created_at: string;
-  updated_at: string;
+  is_active: number;
+  workflow_roles?: string;
+  created_at?: string;
+  updated_at?: string;
 };
 
-type SessionUserRow = {
+type ApprovalLogRow = {
   id: string;
-  username: string;
-  display_name: string;
-  role: UserRole;
-  token?: string;
-  expires_at?: string;
+  action: ApprovalAction;
+  from_status: CardWorkflowStatus;
+  to_status: CardWorkflowStatus;
+  actor_user_id: string;
+  actor_username: string;
+  actor_display_name: string;
+  target_user_id: string;
+  target_display_name: string;
+  comment: string;
+  created_at: string;
 };
+
+type AuditLogRow = {
+  id: string;
+  category: AuditLogCategory;
+  entity_type: string;
+  entity_id: string;
+  action: string;
+  actor_user_id: string;
+  actor_display_name: string;
+  target_user_id: string;
+  target_display_name: string;
+  summary: string;
+  detail_text: string;
+  changes_json: string;
+  ip_address: string;
+  created_at: string;
+};
+
+const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 7;
+const WORKFLOW_ROLE_ORDER: WorkflowRole[] = ['prepare', 'confirm', 'review', 'approve'];
 
 const csvToArray = (value?: string) =>
   value ? value.split(',').map((item) => item.trim()).filter(Boolean) : [];
@@ -210,97 +320,405 @@ const toDepartmentOption = (row: DepartmentOptionRow): DepartmentOption => ({
   sortOrder: row.sort_order,
 });
 
-const toAuthUser = (row: SessionUserRow | UserRow): AuthUser => ({
+const parseWorkflowRoles = (value?: string): WorkflowRole[] =>
+  WORKFLOW_ROLE_ORDER.filter((roleCode) => csvToArray(value).includes(roleCode));
+
+const toUserSummary = (row: UserRow): UserSummary => ({
   id: row.id,
   username: row.username,
   displayName: row.display_name,
   role: row.role,
+  workflowRoles: parseWorkflowRoles(row.workflow_roles),
+  isActive: Boolean(row.is_active),
 });
 
-const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 7;
+const toUserAccount = (row: UserRow): UserAccount => ({
+  ...toUserSummary(row),
+  createdAt: row.created_at ?? '',
+  updatedAt: row.updated_at ?? '',
+});
 
-const toPayload = (
-  card: CardRow,
-  definitions: OperationDefinition[],
-  operationRows: OperationRow[],
-  optionRows: SelectedOptionRow[],
-  detailRows: DetailRow[],
-): ProcessCardPayload => ({
-  id: card.id,
-  cardNo: card.card_no,
-  planNumber: card.plan_number,
-  customerCode: card.customer_code,
-  orderDate: card.order_date,
-  productName: card.product_name,
-  material: card.material,
-  specification: card.specification,
-  quantity: card.quantity,
-  deliveryDate: card.delivery_date,
-  deliveryStatus: card.delivery_status,
-  standard: card.standard,
-  technicalRequirements: card.technical_requirements,
-  remark: card.remark,
-  preparedBy: card.prepared_by,
-  preparedDate: card.prepared_date,
-  confirmedBy: card.confirmed_by,
-  confirmedDate: card.confirmed_date,
-  reviewedBy: card.reviewed_by,
-  reviewedDate: card.reviewed_date,
-  approvedBy: card.approved_by,
-  approvedDate: card.approved_date,
-  createdAt: card.created_at,
-  updatedAt: card.updated_at,
-  operations: definitions.map((definition) => {
-    const saved = operationRows.find((item) => item.operation_code === definition.code);
-    if (!saved) {
-      return createEmptyOperation(definition);
+const toApprovalLog = (row: ApprovalLogRow): ApprovalLog => ({
+  id: row.id,
+  action: row.action,
+  fromStatus: row.from_status,
+  toStatus: row.to_status,
+  actorUserId: row.actor_user_id,
+  actorUsername: row.actor_username,
+  actorDisplayName: row.actor_display_name,
+  targetUserId: row.target_user_id,
+  targetDisplayName: row.target_display_name,
+  comment: row.comment,
+  createdAt: row.created_at,
+});
+
+const toAuditLog = (row: AuditLogRow): AuditLogEntry => ({
+  id: row.id,
+  category: row.category,
+  entityType: row.entity_type,
+  entityId: row.entity_id,
+  action: row.action,
+  actorUserId: row.actor_user_id,
+  actorDisplayName: row.actor_display_name,
+  targetUserId: row.target_user_id,
+  targetDisplayName: row.target_display_name,
+  summary: row.summary,
+  detailText: row.detail_text,
+  changes: JSON.parse(row.changes_json) as AuditLogChange[],
+  ipAddress: row.ip_address,
+  createdAt: row.created_at,
+});
+
+const todayString = () => new Date().toISOString().slice(0, 10);
+
+const isAdmin = (user: AuthUser | null | undefined) => user?.role === 'admin';
+
+const hasWorkflowRole = (user: AuthUser | null | undefined, role: WorkflowRole) =>
+  Boolean(user && (user.role === 'admin' || user.workflowRoles.includes(role)));
+
+const normalizeAuditValue = (value: string | null | undefined) => value?.trim() ?? '';
+
+const compareAuditField = (
+  changes: AuditLogChange[],
+  field: string,
+  before: string | null | undefined,
+  after: string | null | undefined,
+) => {
+  const left = normalizeAuditValue(before);
+  const right = normalizeAuditValue(after);
+
+  if (left !== right) {
+    changes.push({ field, before: left || '-', after: right || '-' });
+  }
+};
+
+const summarizeOperations = (operations: CardOperation[]) =>
+  operations
+    .filter((operation) => operation.enabled)
+    .sort((left, right) => left.sortOrder - right.sortOrder)
+    .map((operation) => {
+      const detailText = operation.details
+        .map((detail) => {
+          const params = Object.entries(detail.params)
+            .filter(([, value]) => value.trim())
+            .map(([key, value]) => `${key}:${value}`)
+            .join(' / ');
+
+          return [detail.detailType, params].filter(Boolean).join(' ');
+        })
+        .filter(Boolean)
+        .join(' | ');
+
+      return [
+        operation.operationCode,
+        operation.department,
+        operation.specialCharacteristic,
+        operation.deliveryTime,
+        operation.otherRequirements,
+        operation.selectedOptionCodes.join(','),
+        detailText,
+      ]
+        .filter(Boolean)
+        .join(' / ');
+    })
+    .join('; ');
+
+function getAvailableActions(card: CardRow, viewer: AuthUser | null): ApprovalAction[] {
+  if (!viewer || card.status === 'approved') {
+    return [];
+  }
+
+  if (card.status === 'draft' || card.status === 'rejected_to_prepare') {
+    if (
+      isAdmin(viewer) ||
+      (card.created_by_user_id === viewer.id && hasWorkflowRole(viewer, 'prepare'))
+    ) {
+      return ['submit_confirm'];
     }
+    return [];
+  }
 
-    const selectedOptionCodes = optionRows
-      .filter((item) => item.card_operation_id === saved.id)
-      .map((item) => item.option_code);
+  if (card.status === 'pending_confirm' || card.status === 'rejected_to_confirm') {
+    if (
+      isAdmin(viewer) ||
+      (card.confirmed_user_id === viewer.id && hasWorkflowRole(viewer, 'confirm'))
+    ) {
+      return ['return_prepare', 'submit_review'];
+    }
+    return [];
+  }
 
-    const details = detailRows
-      .filter((item) => item.card_operation_id === saved.id)
-      .sort((left, right) => left.detail_seq - right.detail_seq)
-      .map<OperationDetail>((item) => ({
-        id: item.id,
-        detailSeq: item.detail_seq,
-        detailType: item.detail_type,
-        displayText: item.display_text,
-        params: JSON.parse(item.params_json),
-      }));
+  if (card.status === 'pending_review' || card.status === 'rejected_to_review') {
+    if (
+      isAdmin(viewer) ||
+      (card.reviewed_user_id === viewer.id && hasWorkflowRole(viewer, 'review'))
+    ) {
+      return ['reject_to_prepare', 'reject_to_confirm', 'submit_approve'];
+    }
+    return [];
+  }
 
+  if (card.status === 'pending_approve') {
+    if (
+      isAdmin(viewer) ||
+      (card.approved_user_id === viewer.id && hasWorkflowRole(viewer, 'approve'))
+    ) {
+      return ['reject_to_review', 'approve'];
+    }
+    return [];
+  }
+
+  return [];
+}
+
+function getPermissions(card: CardRow, viewer: AuthUser | null): CardPermissions {
+  if (!viewer || card.status === 'approved') {
     return {
-      id: saved.id,
-      operationCode: saved.operation_code,
-      sortOrder: saved.sort_order,
-      enabled: Boolean(saved.enabled),
-      department: saved.department,
-      specialCharacteristic: saved.special_characteristic || '',
-      deliveryTime: saved.delivery_time,
-      otherRequirements: saved.other_requirements,
-      remark: saved.remark,
-      selectedOptionCodes,
-      details: details.length > 0 ? details : createEmptyOperation(definition).details,
-    } satisfies CardOperation;
-  }),
-});
+      canEdit: false,
+      canDelete: false,
+      availableActions: getAvailableActions(card, viewer),
+    };
+  }
+
+  const canEdit =
+    isAdmin(viewer) ||
+    ((card.status === 'draft' || card.status === 'rejected_to_prepare') &&
+      card.created_by_user_id === viewer.id &&
+      hasWorkflowRole(viewer, 'prepare')) ||
+    ((card.status === 'pending_confirm' || card.status === 'rejected_to_confirm') &&
+      card.confirmed_user_id === viewer.id &&
+      hasWorkflowRole(viewer, 'confirm'));
+
+  const canDelete =
+    (card.status === 'draft' || card.status === 'rejected_to_prepare') &&
+    (isAdmin(viewer) || card.created_by_user_id === viewer.id);
+
+  return {
+    canEdit,
+    canDelete,
+    availableActions: getAvailableActions(card, viewer),
+  };
+}
+
+function getTargetUserIdForAction(card: CardRow, action: ApprovalAction) {
+  switch (action) {
+    case 'submit_confirm':
+      return card.confirmed_user_id;
+    case 'return_prepare':
+    case 'reject_to_prepare':
+      return card.created_by_user_id;
+    case 'submit_review':
+      return card.reviewed_user_id;
+    case 'reject_to_confirm':
+      return card.confirmed_user_id;
+    case 'submit_approve':
+      return card.approved_user_id;
+    case 'reject_to_review':
+      return card.reviewed_user_id;
+    case 'approve':
+      return card.approved_user_id;
+  }
+}
+
+function getActionResult(card: CardRow, action: ApprovalAction, comment: string, actor: AuthUser) {
+  const now = new Date().toISOString();
+  const today = todayString();
+  const base = {
+    updated_at: now,
+    last_return_comment: '',
+    locked_at: card.locked_at,
+    submitted_at: card.submitted_at,
+    prepared_by: card.prepared_by,
+    prepared_date: card.prepared_date,
+    confirmed_by: card.confirmed_by,
+    confirmed_date: card.confirmed_date,
+    reviewed_by: card.reviewed_by,
+    reviewed_date: card.reviewed_date,
+    approved_by: card.approved_by,
+    approved_date: card.approved_date,
+  };
+
+  switch (action) {
+    case 'submit_confirm':
+      return {
+        ...base,
+        status: 'pending_confirm' as const,
+        current_step: 'confirm' as const,
+        current_handler_user_id: card.confirmed_user_id,
+        submitted_at: card.submitted_at || now,
+        prepared_by: actor.displayName,
+        prepared_date: today,
+      };
+    case 'return_prepare':
+      return {
+        ...base,
+        status: 'rejected_to_prepare' as const,
+        current_step: 'prepare' as const,
+        current_handler_user_id: card.created_by_user_id,
+        last_return_comment: comment,
+      };
+    case 'submit_review':
+      return {
+        ...base,
+        status: 'pending_review' as const,
+        current_step: 'review' as const,
+        current_handler_user_id: card.reviewed_user_id,
+        confirmed_by: actor.displayName,
+        confirmed_date: today,
+      };
+    case 'reject_to_prepare':
+      return {
+        ...base,
+        status: 'rejected_to_prepare' as const,
+        current_step: 'prepare' as const,
+        current_handler_user_id: card.created_by_user_id,
+        last_return_comment: comment,
+      };
+    case 'reject_to_confirm':
+      return {
+        ...base,
+        status: 'rejected_to_confirm' as const,
+        current_step: 'confirm' as const,
+        current_handler_user_id: card.confirmed_user_id,
+        last_return_comment: comment,
+      };
+    case 'submit_approve':
+      return {
+        ...base,
+        status: 'pending_approve' as const,
+        current_step: 'approve' as const,
+        current_handler_user_id: card.approved_user_id,
+        reviewed_by: actor.displayName,
+        reviewed_date: today,
+      };
+    case 'reject_to_review':
+      return {
+        ...base,
+        status: 'rejected_to_review' as const,
+        current_step: 'review' as const,
+        current_handler_user_id: card.reviewed_user_id,
+        last_return_comment: comment,
+      };
+    case 'approve':
+      return {
+        ...base,
+        status: 'approved' as const,
+        current_step: 'approve' as const,
+        current_handler_user_id: '',
+        approved_by: actor.displayName,
+        approved_date: today,
+        locked_at: now,
+      };
+  }
+}
+
+function requireCommentForAction(action: ApprovalAction, comment: string) {
+  if (APPROVAL_ACTION_COMMENT_REQUIRED.includes(action) && !comment.trim()) {
+    throw new Error('当前退回或驳回动作必须填写修改意见。');
+  }
+}
+
+function buildProcessCardChanges(before: ProcessCardPayload | null, after: ProcessCardPayload): AuditLogChange[] {
+  if (!before) {
+    return [
+      { field: '计划单号', before: '-', after: after.planNumber || '-' },
+      { field: '产品名称', before: '-', after: after.productName || '-' },
+      { field: '材质', before: '-', after: after.material || '-' },
+      { field: '规格', before: '-', after: after.specification || '-' },
+      { field: '启用工序', before: '-', after: summarizeOperations(after.operations) || '-' },
+    ];
+  }
+
+  const changes: AuditLogChange[] = [];
+  compareAuditField(changes, '计划单号', before.planNumber, after.planNumber);
+  compareAuditField(changes, '客户代码', before.customerCode, after.customerCode);
+  compareAuditField(changes, '接单日期', before.orderDate, after.orderDate);
+  compareAuditField(changes, '产品名称', before.productName, after.productName);
+  compareAuditField(changes, '材质', before.material, after.material);
+  compareAuditField(changes, '规格', before.specification, after.specification);
+  compareAuditField(changes, '数量', before.quantity, after.quantity);
+  compareAuditField(changes, '交付日期', before.deliveryDate, after.deliveryDate);
+  compareAuditField(changes, '交货状态', before.deliveryStatus, after.deliveryStatus);
+  compareAuditField(changes, '执行标准', before.standard, after.standard);
+  compareAuditField(changes, '技术要求', before.technicalRequirements, after.technicalRequirements);
+  compareAuditField(changes, '确认人', before.confirmedUserId, after.confirmedUserId);
+  compareAuditField(changes, '审核人', before.reviewedUserId, after.reviewedUserId);
+  compareAuditField(changes, '批准人', before.approvedUserId, after.approvedUserId);
+  compareAuditField(
+    changes,
+    '启用工序',
+    summarizeOperations(before.operations),
+    summarizeOperations(after.operations),
+  );
+  return changes;
+}
 
 export class ProcessCardRepository {
   private readonly sqlite = new SqliteService(
-    path.join(process.cwd(), 'server', 'data', 'process-cards.sqlite'),
+    path.join(projectRoot, 'server', 'data', 'process-cards.sqlite'),
   );
 
   async init() {
     await this.sqlite.init();
-    const schema = await readFile(path.join(process.cwd(), 'server', 'db', 'schema.sql'), 'utf8');
+    const schema = await readFile(path.join(projectRoot, 'server', 'db', 'schema.sql'), 'utf8');
     this.sqlite.exec(schema);
+    this.ensureWorkflowSchema();
+    this.ensureSystemSchema();
     this.seedDefinitions();
     this.seedDepartmentOptions();
     this.seedUsers();
+    this.seedUserRoles();
+    this.backfillLegacyWorkflowFields();
     await this.seedDemoCard();
     await this.sqlite.persist();
+  }
+
+  private ensureColumn(table: string, column: string, definition: string) {
+    const rows = this.sqlite.query<{ name: string }>(`PRAGMA table_info(${table})`);
+    if (!rows.some((row) => row.name === column)) {
+      this.sqlite.run(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+    }
+  }
+
+  private ensureWorkflowSchema() {
+    this.ensureColumn('process_cards', 'status', "TEXT NOT NULL DEFAULT 'draft'");
+    this.ensureColumn('process_cards', 'current_step', "TEXT NOT NULL DEFAULT 'prepare'");
+    this.ensureColumn('process_cards', 'current_handler_user_id', "TEXT NOT NULL DEFAULT ''");
+    this.ensureColumn('process_cards', 'created_by_user_id', "TEXT NOT NULL DEFAULT ''");
+    this.ensureColumn('process_cards', 'confirmed_user_id', "TEXT NOT NULL DEFAULT ''");
+    this.ensureColumn('process_cards', 'reviewed_user_id', "TEXT NOT NULL DEFAULT ''");
+    this.ensureColumn('process_cards', 'approved_user_id', "TEXT NOT NULL DEFAULT ''");
+    this.ensureColumn('process_cards', 'submitted_at', "TEXT NOT NULL DEFAULT ''");
+    this.ensureColumn('process_cards', 'locked_at', "TEXT NOT NULL DEFAULT ''");
+    this.ensureColumn('process_cards', 'version_no', 'INTEGER NOT NULL DEFAULT 1');
+    this.ensureColumn('process_cards', 'source_card_id', "TEXT NOT NULL DEFAULT ''");
+    this.ensureColumn('process_cards', 'last_return_comment', "TEXT NOT NULL DEFAULT ''");
+  }
+
+  private ensureSystemSchema() {
+    this.ensureColumn('users', 'is_active', 'INTEGER NOT NULL DEFAULT 1');
+    this.sqlite.exec(`
+      CREATE TABLE IF NOT EXISTS audit_logs (
+        id TEXT PRIMARY KEY,
+        category TEXT NOT NULL,
+        entity_type TEXT NOT NULL DEFAULT '',
+        entity_id TEXT NOT NULL DEFAULT '',
+        action TEXT NOT NULL,
+        actor_user_id TEXT NOT NULL DEFAULT '',
+        actor_display_name TEXT NOT NULL DEFAULT '',
+        target_user_id TEXT NOT NULL DEFAULT '',
+        target_display_name TEXT NOT NULL DEFAULT '',
+        summary TEXT NOT NULL DEFAULT '',
+        detail_text TEXT NOT NULL DEFAULT '',
+        changes_json TEXT NOT NULL DEFAULT '[]',
+        ip_address TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_audit_logs_category ON audit_logs (category);
+      CREATE INDEX IF NOT EXISTS idx_audit_logs_actor_user_id ON audit_logs (actor_user_id);
+      CREATE INDEX IF NOT EXISTS idx_audit_logs_entity ON audit_logs (entity_type, entity_id);
+      CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs (created_at);
+    `);
   }
 
   private seedDefinitions() {
@@ -323,13 +741,9 @@ export class ProcessCardRepository {
           ],
         );
 
-        this.sqlite.run(
-          `
-            DELETE FROM operation_option_definitions
-            WHERE operation_code = ?
-          `,
-          [definition.code],
-        );
+        this.sqlite.run('DELETE FROM operation_option_definitions WHERE operation_code = ?', [
+          definition.code,
+        ]);
 
         for (const option of definition.optionCatalog) {
           this.sqlite.run(
@@ -381,55 +795,149 @@ export class ProcessCardRepository {
 
     const computedHash = scryptSync(password, salt, 64);
     const storedBuffer = Buffer.from(storedHash, 'hex');
-
-    if (storedBuffer.length !== computedHash.length) {
-      return false;
-    }
-
-    return timingSafeEqual(storedBuffer, computedHash);
+    return storedBuffer.length === computedHash.length && timingSafeEqual(storedBuffer, computedHash);
   }
 
-  private seedUsers() {
-    const [{ count }] = this.sqlite.query<{ count: number }>('SELECT COUNT(*) AS count FROM users');
+  private upsertSeedUser(input: {
+    username: string;
+    displayName: string;
+    password: string;
+    role: UserRole;
+  }) {
+    const [existing] = this.sqlite.query<{ id: string }>('SELECT id FROM users WHERE username = ?', [
+      input.username,
+    ]);
 
-    if (count > 0) {
-      return;
+    if (existing) {
+      return existing.id;
     }
 
     const now = new Date().toISOString();
-    const users = [
-      {
+    const id = randomUUID();
+    this.sqlite.run(
+      `
+        INSERT INTO users (id, username, display_name, password_hash, role, is_active, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `,
+      [
+        id,
+        input.username,
+        input.displayName,
+        this.hashPassword(input.password),
+        input.role,
+        1,
+        now,
+        now,
+      ],
+    );
+    return id;
+  }
+
+  private seedUsers() {
+    this.sqlite.transaction(() => {
+      this.upsertSeedUser({
         username: 'admin',
         displayName: '系统管理员',
         password: 'admin123',
-        role: 'admin' as const,
-      },
-      {
+        role: 'admin',
+      });
+      this.upsertSeedUser({
         username: 'operator',
-        displayName: '工艺录入员',
+        displayName: '工艺编制员',
         password: 'operator123',
-        role: 'user' as const,
-      },
-    ];
+        role: 'user',
+      });
+      this.upsertSeedUser({
+        username: 'confirmer',
+        displayName: '工艺确认员',
+        password: 'confirm123',
+        role: 'user',
+      });
+      this.upsertSeedUser({
+        username: 'reviewer',
+        displayName: '工艺审核员',
+        password: 'review123',
+        role: 'user',
+      });
+      this.upsertSeedUser({
+        username: 'approver',
+        displayName: '工艺批准员',
+        password: 'approve123',
+        role: 'user',
+      });
+    });
+  }
+
+  private getUserIdByUsername(username: string) {
+    const [row] = this.sqlite.query<{ id: string }>('SELECT id FROM users WHERE username = ?', [username]);
+    return row?.id ?? '';
+  }
+
+  private ensureUserRole(userId: string, roleCode: WorkflowRole) {
+    if (!userId) {
+      return;
+    }
+
+    const [existing] = this.sqlite.query<{ id: string }>(
+      'SELECT id FROM user_roles WHERE user_id = ? AND role_code = ?',
+      [userId, roleCode],
+    );
+    if (existing) {
+      return;
+    }
+
+    this.sqlite.run(
+      `
+        INSERT INTO user_roles (id, user_id, role_code, created_at)
+        VALUES (?, ?, ?, ?)
+      `,
+      [randomUUID(), userId, roleCode, new Date().toISOString()],
+    );
+  }
+
+  private seedUserRoles() {
+    this.sqlite.transaction(() => {
+      const adminId = this.getUserIdByUsername('admin');
+      const operatorId = this.getUserIdByUsername('operator');
+      const confirmerId = this.getUserIdByUsername('confirmer');
+      const reviewerId = this.getUserIdByUsername('reviewer');
+      const approverId = this.getUserIdByUsername('approver');
+
+      WORKFLOW_ROLE_ORDER.forEach((roleCode) => this.ensureUserRole(adminId, roleCode));
+      this.ensureUserRole(operatorId, 'prepare');
+      this.ensureUserRole(confirmerId, 'confirm');
+      this.ensureUserRole(reviewerId, 'review');
+      this.ensureUserRole(approverId, 'approve');
+    });
+  }
+
+  private backfillLegacyWorkflowFields() {
+    const fallbackCreatorId = this.getUserIdByUsername('operator') || this.getUserIdByUsername('admin');
 
     this.sqlite.transaction(() => {
-      users.forEach((user) => {
-        this.sqlite.run(
-          `
-            INSERT INTO users (id, username, display_name, password_hash, role, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-          `,
-          [
-            randomUUID(),
-            user.username,
-            user.displayName,
-            this.hashPassword(user.password),
-            user.role,
-            now,
-            now,
-          ],
-        );
-      });
+      this.sqlite.run(
+        `
+          UPDATE process_cards
+          SET created_by_user_id = CASE
+            WHEN TRIM(created_by_user_id) = '' THEN ?
+            ELSE created_by_user_id
+          END
+        `,
+        [fallbackCreatorId],
+      );
+
+      this.sqlite.run(
+        `
+          UPDATE process_cards
+          SET status = CASE WHEN TRIM(status) = '' THEN 'draft' ELSE status END,
+              current_step = CASE WHEN TRIM(current_step) = '' THEN 'prepare' ELSE current_step END,
+              current_handler_user_id = CASE
+                WHEN TRIM(current_handler_user_id) = '' THEN created_by_user_id
+                ELSE current_handler_user_id
+              END,
+              version_no = CASE WHEN version_no IS NULL OR version_no <= 0 THEN 1 ELSE version_no END
+        `,
+      );
     });
   }
 
@@ -442,7 +950,95 @@ export class ProcessCardRepository {
       return;
     }
 
-    await this.saveProcessCard(createDemoProcessCard(await this.getOperationDefinitions()));
+    const users = await this.getUsers();
+    const creator = users.find((user) => hasWorkflowRole(user, 'prepare')) ?? users[0];
+    if (!creator) {
+      return;
+    }
+
+    const demo = createDemoProcessCard(await this.getOperationDefinitions());
+    demo.confirmedUserId = this.getUserIdByUsername('confirmer');
+    demo.reviewedUserId = this.getUserIdByUsername('reviewer');
+    demo.approvedUserId = this.getUserIdByUsername('approver');
+    await this.saveProcessCard(demo, creator);
+  }
+
+  private writeAuditLog(input: {
+    category: AuditLogCategory;
+    entityType: string;
+    entityId?: string;
+    action: string;
+    actor?: AuthUser | null;
+    actorDisplayName?: string;
+    targetUserId?: string;
+    targetDisplayName?: string;
+    summary: string;
+    detailText?: string;
+    changes?: AuditLogChange[];
+    ipAddress?: string;
+  }) {
+    this.sqlite.run(
+      `
+        INSERT INTO audit_logs
+        (id, category, entity_type, entity_id, action, actor_user_id, actor_display_name, target_user_id, target_display_name, summary, detail_text, changes_json, ip_address, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `,
+      [
+        randomUUID(),
+        input.category,
+        input.entityType,
+        input.entityId ?? '',
+        input.action,
+        input.actor?.id ?? '',
+        input.actor?.displayName ?? input.actorDisplayName ?? '',
+        input.targetUserId ?? '',
+        input.targetDisplayName ?? '',
+        input.summary,
+        input.detailText ?? '',
+        JSON.stringify(input.changes ?? []),
+        input.ipAddress ?? '',
+        new Date().toISOString(),
+      ],
+    );
+  }
+
+  async listAuditLogs(filters: AuditLogFilters): Promise<AuditLogEntry[]> {
+    const parsed = auditLogFiltersSchema.parse(filters);
+    const whereClauses = ['1 = 1'];
+    const params: string[] = [];
+
+    if (parsed.category?.trim()) {
+      whereClauses.push('category = ?');
+      params.push(parsed.category.trim());
+    }
+
+    if (parsed.actorUserId?.trim()) {
+      whereClauses.push('actor_user_id = ?');
+      params.push(parsed.actorUserId.trim());
+    }
+
+    if (parsed.keyword?.trim()) {
+      whereClauses.push('(summary LIKE ? OR detail_text LIKE ? OR target_display_name LIKE ? OR actor_display_name LIKE ?)');
+      params.push(
+        `%${parsed.keyword.trim()}%`,
+        `%${parsed.keyword.trim()}%`,
+        `%${parsed.keyword.trim()}%`,
+        `%${parsed.keyword.trim()}%`,
+      );
+    }
+
+    const rows = this.sqlite.query<AuditLogRow>(
+      `
+        SELECT *
+        FROM audit_logs
+        WHERE ${whereClauses.join(' AND ')}
+        ORDER BY created_at DESC
+        LIMIT 300
+      `,
+      params,
+    );
+
+    return rows.map(toAuditLog);
   }
 
   async getOperationDefinitions(): Promise<OperationDefinition[]> {
@@ -476,9 +1072,10 @@ export class ProcessCardRepository {
     return rows.map(toDepartmentOption);
   }
 
-  async saveDepartmentOptions(input: DepartmentOption[]) {
+  async saveDepartmentOptions(input: DepartmentOption[], actor?: AuthUser, ipAddress = '') {
     const items = departmentOptionListSchema.parse(input);
     const now = new Date().toISOString();
+    const before = await this.getDepartmentOptions();
 
     this.sqlite.transaction(() => {
       this.sqlite.run('DELETE FROM department_options');
@@ -498,24 +1095,321 @@ export class ProcessCardRepository {
             [item.id, item.label, item.sortOrder, now, now],
           );
         });
+
+      if (actor) {
+        const changes: AuditLogChange[] = [];
+        compareAuditField(
+          changes,
+          '生产部门字典',
+          before.map((item) => item.label).join(' / '),
+          items.map((item) => item.label.trim()).filter(Boolean).join(' / '),
+        );
+        this.writeAuditLog({
+          category: 'dictionary',
+          entityType: 'department_options',
+          action: 'update',
+          actor,
+          summary: '更新生产部门字典',
+          detailText: '保存了生产部门下拉配置。',
+          changes,
+          ipAddress,
+        });
+      }
     });
 
     await this.sqlite.persist();
     return this.getDepartmentOptions();
   }
 
-  async login(username: string, password: string): Promise<LoginResponse | null> {
+  async getUsers(): Promise<UserSummary[]> {
+    const rows = this.sqlite.query<UserRow>(
+      `
+        SELECT
+          u.id,
+          u.username,
+          u.display_name,
+          u.role,
+          u.is_active,
+          GROUP_CONCAT(ur.role_code) AS workflow_roles
+        FROM users u
+        LEFT JOIN user_roles ur ON ur.user_id = u.id
+        WHERE u.is_active = 1
+        GROUP BY u.id
+        ORDER BY CASE WHEN u.role = 'admin' THEN 0 ELSE 1 END, u.username ASC
+      `,
+    );
+
+    return rows.map(toUserSummary);
+  }
+
+  async getUserAccounts(): Promise<UserAccount[]> {
+    const rows = this.sqlite.query<UserRow>(
+      `
+        SELECT
+          u.id,
+          u.username,
+          u.display_name,
+          u.role,
+          u.is_active,
+          u.created_at,
+          u.updated_at,
+          GROUP_CONCAT(ur.role_code) AS workflow_roles
+        FROM users u
+        LEFT JOIN user_roles ur ON ur.user_id = u.id
+        GROUP BY u.id
+        ORDER BY CASE WHEN u.role = 'admin' THEN 0 ELSE 1 END, u.username ASC
+      `,
+    );
+
+    return rows.map(toUserAccount);
+  }
+
+  private replaceUserWorkflowRoles(userId: string, workflowRoles: WorkflowRole[]) {
+    this.sqlite.run('DELETE FROM user_roles WHERE user_id = ?', [userId]);
+    workflowRoles.forEach((roleCode) => {
+      this.sqlite.run(
+        'INSERT INTO user_roles (id, user_id, role_code, created_at) VALUES (?, ?, ?, ?)',
+        [randomUUID(), userId, roleCode, new Date().toISOString()],
+      );
+    });
+  }
+
+  async createUserAccount(input: UserAccountCreateRequest, actor: AuthUser, ipAddress = '') {
+    const payload = userAccountCreateSchema.parse(input);
+    const now = new Date().toISOString();
+    const userId = randomUUID();
+    const username = payload.username.trim().toLowerCase();
+
+    const [existing] = this.sqlite.query<{ id: string }>('SELECT id FROM users WHERE username = ?', [username]);
+    if (existing) {
+      throw new Error('登录账号已存在，请更换用户名。');
+    }
+
+    this.sqlite.transaction(() => {
+      this.sqlite.run(
+        `
+          INSERT INTO users (id, username, display_name, password_hash, role, is_active, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `,
+        [
+          userId,
+          username,
+          payload.displayName.trim(),
+          this.hashPassword(payload.password),
+          payload.role,
+          payload.isActive ? 1 : 0,
+          now,
+          now,
+        ],
+      );
+      this.replaceUserWorkflowRoles(userId, payload.workflowRoles);
+      this.writeAuditLog({
+        category: 'user',
+        entityType: 'user',
+        entityId: userId,
+        action: 'create',
+        actor,
+        targetUserId: userId,
+        targetDisplayName: payload.displayName.trim(),
+        summary: `新增账号：${payload.displayName.trim()}（${username}）`,
+        detailText: `角色：${payload.role}；流程角色：${payload.workflowRoles.join(' / ') || '无'}；状态：${payload.isActive ? '启用' : '停用'}`,
+        ipAddress,
+      });
+    });
+
+    await this.sqlite.persist();
+    return this.getUserAccounts();
+  }
+
+  async updateUserAccount(id: string, input: UserAccountUpdateRequest, actor: AuthUser, ipAddress = '') {
+    const payload = userAccountUpdateSchema.parse(input);
+    const [existing] = this.sqlite.query<UserRow>(
+      `
+        SELECT
+          u.id,
+          u.username,
+          u.display_name,
+          u.role,
+          u.is_active,
+          u.created_at,
+          u.updated_at,
+          GROUP_CONCAT(ur.role_code) AS workflow_roles
+        FROM users u
+        LEFT JOIN user_roles ur ON ur.user_id = u.id
+        WHERE u.id = ?
+        GROUP BY u.id
+      `,
+      [id],
+    );
+
+    if (!existing) {
+      throw new Error('账号不存在。');
+    }
+
+    const changes: AuditLogChange[] = [];
+    compareAuditField(changes, '显示名称', existing.display_name, payload.displayName);
+    compareAuditField(changes, '系统角色', existing.role, payload.role);
+    compareAuditField(
+      changes,
+      '流程角色',
+      parseWorkflowRoles(existing.workflow_roles).join(' / '),
+      payload.workflowRoles.join(' / '),
+    );
+
+    this.sqlite.transaction(() => {
+      this.sqlite.run(
+        'UPDATE users SET display_name = ?, role = ?, updated_at = ? WHERE id = ?',
+        [payload.displayName.trim(), payload.role, new Date().toISOString(), id],
+      );
+      this.replaceUserWorkflowRoles(id, payload.workflowRoles);
+      this.writeAuditLog({
+        category: 'user',
+        entityType: 'user',
+        entityId: id,
+        action: 'update',
+        actor,
+        targetUserId: id,
+        targetDisplayName: payload.displayName.trim(),
+        summary: `更新账号：${payload.displayName.trim()}（${existing.username}）`,
+        detailText: changes.length > 0 ? '更新了账号信息与角色分配。' : '保存账号信息，无字段变化。',
+        changes,
+        ipAddress,
+      });
+    });
+
+    await this.sqlite.persist();
+    return this.getUserAccounts();
+  }
+
+  async resetUserPassword(id: string, input: UserPasswordResetRequest, actor: AuthUser, ipAddress = '') {
+    const payload = userPasswordResetSchema.parse(input);
+    const [existing] = this.sqlite.query<UserRow>('SELECT id, username, display_name, role, is_active FROM users WHERE id = ?', [id]);
+    if (!existing) {
+      throw new Error('账号不存在。');
+    }
+
+    this.sqlite.transaction(() => {
+      this.sqlite.run('UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?', [
+        this.hashPassword(payload.password),
+        new Date().toISOString(),
+        id,
+      ]);
+      this.writeAuditLog({
+        category: 'user',
+        entityType: 'user',
+        entityId: id,
+        action: 'reset_password',
+        actor,
+        targetUserId: id,
+        targetDisplayName: existing.display_name,
+        summary: `重置密码：${existing.display_name}（${existing.username}）`,
+        detailText: '管理员重置了登录密码。',
+        ipAddress,
+      });
+    });
+
+    await this.sqlite.persist();
+    return { success: true };
+  }
+
+  async setUserActive(id: string, isActive: boolean, actor: AuthUser, ipAddress = '') {
+    const payload = userActiveToggleSchema.parse({ isActive });
+    const [existing] = this.sqlite.query<UserRow>('SELECT id, username, display_name, role, is_active FROM users WHERE id = ?', [id]);
+    if (!existing) {
+      throw new Error('账号不存在。');
+    }
+
+    if (existing.username === 'admin' && !payload.isActive) {
+      throw new Error('默认管理员账号不能被停用。');
+    }
+
+    this.sqlite.transaction(() => {
+      this.sqlite.run('UPDATE users SET is_active = ?, updated_at = ? WHERE id = ?', [
+        payload.isActive ? 1 : 0,
+        new Date().toISOString(),
+        id,
+      ]);
+
+      if (!payload.isActive) {
+        this.sqlite.run('DELETE FROM sessions WHERE user_id = ?', [id]);
+      }
+
+      this.writeAuditLog({
+        category: 'user',
+        entityType: 'user',
+        entityId: id,
+        action: payload.isActive ? 'enable' : 'disable',
+        actor,
+        targetUserId: id,
+        targetDisplayName: existing.display_name,
+        summary: `${payload.isActive ? '启用' : '停用'}账号：${existing.display_name}（${existing.username}）`,
+        detailText: '',
+        changes: [
+          {
+            field: '账号状态',
+            before: existing.is_active ? '启用' : '停用',
+            after: payload.isActive ? '启用' : '停用',
+          },
+        ],
+        ipAddress,
+      });
+    });
+
+    await this.sqlite.persist();
+    return this.getUserAccounts();
+  }
+
+  async login(username: string, password: string, ipAddress = ''): Promise<LoginResponse | null> {
     const normalizedUsername = username.trim().toLowerCase();
     const [user] = this.sqlite.query<UserRow>(
       `
-        SELECT id, username, display_name, password_hash, role, created_at, updated_at
-        FROM users
-        WHERE username = ?
+        SELECT
+          u.id,
+          u.username,
+          u.display_name,
+          u.password_hash,
+          u.role,
+          u.is_active,
+          GROUP_CONCAT(ur.role_code) AS workflow_roles
+        FROM users u
+        LEFT JOIN user_roles ur ON ur.user_id = u.id
+        WHERE u.username = ?
+        GROUP BY u.id
       `,
       [normalizedUsername],
     );
 
-    if (!user || !this.verifyPassword(password, user.password_hash)) {
+    if (!user?.password_hash || !this.verifyPassword(password, user.password_hash)) {
+      this.sqlite.run(
+        `
+          INSERT INTO audit_logs
+          (id, category, entity_type, entity_id, action, actor_user_id, actor_display_name, target_user_id, target_display_name, summary, detail_text, changes_json, ip_address, created_at)
+          VALUES (?, 'auth', 'session', '', 'login_failed', '', ?, '', '', ?, ?, '[]', ?, ?)
+        `,
+        [
+          randomUUID(),
+          normalizedUsername,
+          `登录失败：${normalizedUsername}`,
+          '用户名或密码错误。',
+          ipAddress,
+          new Date().toISOString(),
+        ],
+      );
+      await this.sqlite.persist();
+      return null;
+    }
+
+    if (!user.is_active) {
+      this.writeAuditLog({
+        category: 'auth',
+        entityType: 'session',
+        action: 'login_blocked',
+        actorDisplayName: user.display_name,
+        summary: `登录被拒绝：${user.display_name}`,
+        detailText: '账号已停用。',
+        ipAddress,
+      });
+      await this.sqlite.persist();
       return null;
     }
 
@@ -533,40 +1427,220 @@ export class ProcessCardRepository {
       [token, user.id, expiresAt, nowIso],
     );
 
+    this.writeAuditLog({
+      category: 'auth',
+      entityType: 'session',
+      entityId: token,
+      action: 'login',
+      actor: toUserSummary(user),
+      summary: `登录成功：${user.display_name}`,
+      detailText: `账号：${user.username}`,
+      ipAddress,
+    });
+
     await this.sqlite.persist();
 
     return {
       token,
-      user: toAuthUser(user),
+      user: toUserSummary(user),
     };
   }
 
   async getAuthUserByToken(token: string): Promise<AuthUser | null> {
     const now = new Date().toISOString();
-    const [row] = this.sqlite.query<SessionUserRow>(
+    const [row] = this.sqlite.query<UserRow>(
       `
-        SELECT u.id, u.username, u.display_name, u.role, s.token, s.expires_at
+        SELECT
+          u.id,
+          u.username,
+          u.display_name,
+          u.role,
+          u.is_active,
+          GROUP_CONCAT(ur.role_code) AS workflow_roles
         FROM sessions s
         JOIN users u ON u.id = s.user_id
+        LEFT JOIN user_roles ur ON ur.user_id = u.id
         WHERE s.token = ?
           AND s.expires_at > ?
+          AND u.is_active = 1
+        GROUP BY u.id
       `,
       [token, now],
     );
 
-    if (!row) {
-      return null;
-    }
-
-    return toAuthUser(row);
+    return row ? toUserSummary(row) : null;
   }
 
-  async logout(token: string) {
+  async logout(token: string, actor?: AuthUser | null, ipAddress = '') {
     this.sqlite.run('DELETE FROM sessions WHERE token = ?', [token]);
+    if (actor) {
+      this.writeAuditLog({
+        category: 'auth',
+        entityType: 'session',
+        entityId: token,
+        action: 'logout',
+        actor,
+        summary: `退出登录：${actor.displayName}`,
+        ipAddress,
+      });
+    }
     await this.sqlite.persist();
   }
 
-  async listProcessCards(filters: ProcessCardListFilters): Promise<ProcessCardListItem[]> {
+  private async getOperationRecords(cardId: string) {
+    const operationRows = this.sqlite.query<OperationRow>(
+      'SELECT * FROM card_operations WHERE card_id = ? ORDER BY sort_order ASC',
+      [cardId],
+    );
+    const selectedOptionRows = this.sqlite.query<SelectedOptionRow>(
+      `
+        SELECT card_operation_id, option_code
+        FROM card_operation_selected_options
+        WHERE card_operation_id IN (SELECT id FROM card_operations WHERE card_id = ?)
+      `,
+      [cardId],
+    );
+    const detailRows = this.sqlite.query<DetailRow>(
+      `
+        SELECT *
+        FROM operation_details
+        WHERE card_operation_id IN (SELECT id FROM card_operations WHERE card_id = ?)
+        ORDER BY detail_seq ASC
+      `,
+      [cardId],
+    );
+
+    return { operationRows, selectedOptionRows, detailRows };
+  }
+
+  private getApprovalLogs(cardId: string): ApprovalLog[] {
+    const rows = this.sqlite.query<ApprovalLogRow>(
+      `
+        SELECT
+          l.id,
+          l.action,
+          l.from_status,
+          l.to_status,
+          l.actor_user_id,
+          COALESCE(actor.username, '') AS actor_username,
+          COALESCE(actor.display_name, '') AS actor_display_name,
+          l.target_user_id,
+          COALESCE(target.display_name, '') AS target_display_name,
+          l.comment,
+          l.created_at
+        FROM process_card_approval_logs l
+        LEFT JOIN users actor ON actor.id = l.actor_user_id
+        LEFT JOIN users target ON target.id = l.target_user_id
+        WHERE l.card_id = ?
+        ORDER BY l.created_at ASC
+      `,
+      [cardId],
+    );
+
+    return rows.map(toApprovalLog);
+  }
+
+  private getUserDisplayName(userId: string) {
+    if (!userId.trim()) {
+      return '';
+    }
+
+    const [row] = this.sqlite.query<{ display_name: string }>(
+      'SELECT display_name FROM users WHERE id = ?',
+      [userId],
+    );
+    return row?.display_name ?? '';
+  }
+
+  private toPayload(
+    card: CardRow,
+    definitions: OperationDefinition[],
+    operationRows: OperationRow[],
+    optionRows: SelectedOptionRow[],
+    detailRows: DetailRow[],
+    approvalLogs: ApprovalLog[],
+    viewer: AuthUser | null,
+  ): ProcessCardPayload {
+    return {
+      id: card.id,
+      cardNo: card.card_no,
+      planNumber: card.plan_number,
+      customerCode: card.customer_code,
+      orderDate: card.order_date,
+      productName: card.product_name,
+      material: card.material,
+      specification: card.specification,
+      quantity: card.quantity,
+      deliveryDate: card.delivery_date,
+      deliveryStatus: card.delivery_status,
+      standard: card.standard,
+      technicalRequirements: card.technical_requirements,
+      remark: card.remark,
+      preparedBy: card.prepared_by,
+      preparedDate: card.prepared_date,
+      confirmedBy: card.confirmed_by,
+      confirmedDate: card.confirmed_date,
+      reviewedBy: card.reviewed_by,
+      reviewedDate: card.reviewed_date,
+      approvedBy: card.approved_by,
+      approvedDate: card.approved_date,
+      status: card.status,
+      currentStep: card.current_step,
+      currentHandlerUserId: card.current_handler_user_id,
+      currentHandlerName: this.getUserDisplayName(card.current_handler_user_id),
+      createdByUserId: card.created_by_user_id,
+      createdByName: this.getUserDisplayName(card.created_by_user_id),
+      confirmedUserId: card.confirmed_user_id,
+      reviewedUserId: card.reviewed_user_id,
+      approvedUserId: card.approved_user_id,
+      versionNo: card.version_no,
+      sourceCardId: card.source_card_id,
+      submittedAt: card.submitted_at,
+      lockedAt: card.locked_at,
+      lastReturnComment: card.last_return_comment,
+      approvalLogs,
+      permissions: getPermissions(card, viewer),
+      createdAt: card.created_at,
+      updatedAt: card.updated_at,
+      operations: definitions.map((definition) => {
+        const saved = operationRows.find((item) => item.operation_code === definition.code);
+        if (!saved) {
+          return createEmptyOperation(definition);
+        }
+
+        const selectedOptionCodes = optionRows
+          .filter((item) => item.card_operation_id === saved.id)
+          .map((item) => item.option_code);
+
+        const details = detailRows
+          .filter((item) => item.card_operation_id === saved.id)
+          .sort((left, right) => left.detail_seq - right.detail_seq)
+          .map<OperationDetail>((item) => ({
+            id: item.id,
+            detailSeq: item.detail_seq,
+            detailType: item.detail_type,
+            displayText: item.display_text,
+            params: JSON.parse(item.params_json),
+          }));
+
+        return {
+          id: saved.id,
+          operationCode: saved.operation_code,
+          sortOrder: saved.sort_order,
+          enabled: Boolean(saved.enabled),
+          department: saved.department,
+          specialCharacteristic: saved.special_characteristic || '',
+          deliveryTime: saved.delivery_time,
+          otherRequirements: saved.other_requirements,
+          remark: saved.remark,
+          selectedOptionCodes,
+          details: details.length > 0 ? details : createEmptyOperation(definition).details,
+        } satisfies CardOperation;
+      }),
+    };
+  }
+
+  async listProcessCards(filters: ProcessCardListFilters, viewer: AuthUser): Promise<ProcessCardListItem[]> {
     const whereClauses = ['1 = 1'];
     const params: string[] = [];
 
@@ -588,6 +1662,11 @@ export class ProcessCardRepository {
     appendLike('c.material', filters.material);
     appendLike('c.specification', filters.specification);
     appendLike('c.delivery_date', filters.deliveryDate);
+
+    if (filters.status?.trim()) {
+      whereClauses.push('c.status = ?');
+      params.push(filters.status.trim());
+    }
 
     if (filters.operationCode?.trim()) {
       whereClauses.push(`
@@ -616,33 +1695,21 @@ export class ProcessCardRepository {
       params.push(filters.heatTreatmentType.trim());
     }
 
-    const rows = this.sqlite.query<{
-      id: string;
-      card_no: string;
-      plan_number: string;
-      customer_code: string;
-      product_name: string;
-      material: string;
-      specification: string;
-      delivery_date: string;
-      updated_at: string;
-      enabled_operation_codes?: string;
-      heat_treatment_types?: string;
-    }>(
+    const rows = this.sqlite.query<
+      CardRow & {
+        current_handler_name: string;
+        enabled_operation_codes?: string;
+        heat_treatment_types?: string;
+      }
+    >(
       `
         SELECT
-          c.id,
-          c.card_no,
-          c.plan_number,
-          c.customer_code,
-          c.product_name,
-          c.material,
-          c.specification,
-          c.delivery_date,
-          c.updated_at,
+          c.*,
+          COALESCE(handler.display_name, '') AS current_handler_name,
           GROUP_CONCAT(DISTINCT co.operation_code) AS enabled_operation_codes,
           GROUP_CONCAT(DISTINCT CASE WHEN co.operation_code = 'heat-treatment' THEN od.detail_type END) AS heat_treatment_types
         FROM process_cards c
+        LEFT JOIN users handler ON handler.id = c.current_handler_user_id
         LEFT JOIN card_operations co ON co.card_id = c.id AND co.enabled = 1
         LEFT JOIN operation_details od ON od.card_operation_id = co.id
         WHERE ${whereClauses.join(' AND ')}
@@ -662,40 +1729,38 @@ export class ProcessCardRepository {
       specification: row.specification,
       deliveryDate: row.delivery_date,
       updatedAt: row.updated_at,
+      status: row.status,
+      currentStep: row.current_step,
+      currentHandlerName: row.current_handler_name,
+      versionNo: row.version_no,
+      lastReturnComment: row.last_return_comment,
       enabledOperationCodes: csvToArray(row.enabled_operation_codes),
       heatTreatmentTypes: csvToArray(row.heat_treatment_types),
+      permissions: {
+        canEdit: getPermissions(row, viewer).canEdit,
+        canDelete: getPermissions(row, viewer).canDelete,
+      },
     }));
   }
 
-  async getProcessCard(id: string) {
+  async getProcessCard(id: string, viewer: AuthUser | null = null) {
     const [card] = this.sqlite.query<CardRow>('SELECT * FROM process_cards WHERE id = ?', [id]);
     if (!card) {
       return null;
     }
 
     const definitions = await this.getOperationDefinitions();
-    const operationRows = this.sqlite.query<OperationRow>(
-      'SELECT * FROM card_operations WHERE card_id = ? ORDER BY sort_order ASC',
-      [id],
+    const { operationRows, selectedOptionRows, detailRows } = await this.getOperationRecords(id);
+    const approvalLogs = this.getApprovalLogs(id);
+    return this.toPayload(
+      card,
+      definitions,
+      operationRows,
+      selectedOptionRows,
+      detailRows,
+      approvalLogs,
+      viewer,
     );
-    const selectedOptionRows = this.sqlite.query<SelectedOptionRow>(
-      `
-        SELECT card_operation_id, option_code
-        FROM card_operation_selected_options
-        WHERE card_operation_id IN (SELECT id FROM card_operations WHERE card_id = ?)
-      `,
-      [id],
-    );
-    const detailRows = this.sqlite.query<DetailRow>(
-      `
-        SELECT * FROM operation_details
-        WHERE card_operation_id IN (SELECT id FROM card_operations WHERE card_id = ?)
-        ORDER BY detail_seq ASC
-      `,
-      [id],
-    );
-
-    return toPayload(card, definitions, operationRows, selectedOptionRows, detailRows);
   }
 
   async findProductPrefills(productName: string): Promise<ProductPrefillCandidate[]> {
@@ -714,55 +1779,106 @@ export class ProcessCardRepository {
       [normalized],
     );
 
-    if (cards.length === 0) {
-      return [];
-    }
-
     const definitions = await this.getOperationDefinitions();
 
-    return cards.map((card) => {
-      const operationRows = this.sqlite.query<OperationRow>(
-        'SELECT * FROM card_operations WHERE card_id = ? ORDER BY sort_order ASC',
-        [card.id],
-      );
-      const selectedOptionRows = this.sqlite.query<SelectedOptionRow>(
-        `
-          SELECT card_operation_id, option_code
-          FROM card_operation_selected_options
-          WHERE card_operation_id IN (SELECT id FROM card_operations WHERE card_id = ?)
-        `,
-        [card.id],
-      );
-      const detailRows = this.sqlite.query<DetailRow>(
-        `
-          SELECT *
-          FROM operation_details
-          WHERE card_operation_id IN (SELECT id FROM card_operations WHERE card_id = ?)
-          ORDER BY detail_seq ASC
-        `,
-        [card.id],
-      );
+    return Promise.all(
+      cards.map(async (card) => {
+        const { operationRows, selectedOptionRows, detailRows } = await this.getOperationRecords(card.id);
+        const payload = this.toPayload(
+          card,
+          definitions,
+          operationRows,
+          selectedOptionRows,
+          detailRows,
+          [],
+          null,
+        );
 
-      const payload = toPayload(card, definitions, operationRows, selectedOptionRows, detailRows);
-
-      return {
-        sourceCardId: card.id,
-        productName: payload.productName,
-        planNumber: payload.planNumber,
-        updatedAt: payload.updatedAt ?? card.updated_at,
-        operations: payload.operations.map((operation) => ({
-          ...operation,
-          id: undefined,
-          details: operation.details.map((detail) => ({
-            ...detail,
+        return {
+          sourceCardId: card.id,
+          productName: payload.productName,
+          planNumber: payload.planNumber,
+          updatedAt: payload.updatedAt ?? card.updated_at,
+          operations: payload.operations.map((operation) => ({
+            ...operation,
             id: undefined,
+            details: operation.details.map((detail) => ({
+              ...detail,
+              id: undefined,
+            })),
           })),
-        })),
-      };
-    });
+        };
+      }),
+    );
   }
 
-  async saveProcessCard(input: ProcessCardPayload) {
+  private assertCanEditCard(card: CardRow, actor: AuthUser) {
+    if (!getPermissions(card, actor).canEdit) {
+      throw new Error('当前状态下你没有编辑这张工艺卡的权限。');
+    }
+  }
+
+  private writeOperations(cardId: string, operations: CardOperation[]) {
+    this.sqlite.run('DELETE FROM card_operations WHERE card_id = ?', [cardId]);
+
+    for (const operation of operations
+      .filter(hasMeaningfulOperationContent)
+      .sort((a, b) => a.sortOrder - b.sortOrder)) {
+      const operationId = randomUUID();
+      this.sqlite.run(
+        `
+          INSERT INTO card_operations
+          (id, card_id, operation_code, sort_order, enabled, department, special_characteristic, delivery_time, other_requirements, remark)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `,
+        [
+          operationId,
+          cardId,
+          operation.operationCode,
+          operation.sortOrder,
+          operation.enabled ? 1 : 0,
+          operation.department,
+          operation.specialCharacteristic,
+          operation.deliveryTime,
+          operation.otherRequirements,
+          '',
+        ],
+      );
+
+      for (const optionCode of operation.selectedOptionCodes) {
+        this.sqlite.run(
+          'INSERT INTO card_operation_selected_options (id, card_operation_id, option_code) VALUES (?, ?, ?)',
+          [randomUUID(), operationId, optionCode],
+        );
+      }
+
+      for (const detail of operation.details) {
+        const hasValues =
+          detail.detailType.trim() || Object.values(detail.params).some((value) => value.trim());
+        if (!hasValues && !operation.enabled) {
+          continue;
+        }
+
+        this.sqlite.run(
+          `
+            INSERT INTO operation_details
+            (id, card_operation_id, detail_seq, detail_type, display_text, params_json)
+            VALUES (?, ?, ?, ?, ?, ?)
+          `,
+          [
+            randomUUID(),
+            operationId,
+            detail.detailSeq,
+            detail.detailType,
+            detail.displayText ?? '',
+            JSON.stringify(detail.params),
+          ],
+        );
+      }
+    }
+  }
+
+  async saveProcessCard(input: ProcessCardPayload, actor: AuthUser, ipAddress = '') {
     const parsed = processCardSchema.parse(input);
     const payload = {
       ...parsed,
@@ -773,27 +1889,27 @@ export class ProcessCardRepository {
         remark: '',
       })),
     };
-    const cardId = payload.id ?? randomUUID();
     const now = new Date().toISOString();
+    const cardId = payload.id ?? randomUUID();
+    const beforePayload = payload.id ? await this.getProcessCard(payload.id, null) : null;
+    const isNewCard = !payload.id;
 
     this.sqlite.transaction(() => {
-      const exists = this.sqlite.query<{ id: string }>(
-        'SELECT id FROM process_cards WHERE id = ?',
-        [cardId],
-      )[0];
+      const [existing] = this.sqlite.query<CardRow>('SELECT * FROM process_cards WHERE id = ?', [cardId]);
 
-      if (exists) {
+      if (existing) {
+        this.assertCanEditCard(existing, actor);
         this.sqlite.run(
           `
             UPDATE process_cards SET
               card_no = ?, plan_number = ?, customer_code = ?, order_date = ?, product_name = ?, material = ?,
               specification = ?, quantity = ?, delivery_date = ?, delivery_status = ?, standard = ?,
-              technical_requirements = ?, remark = ?, prepared_by = ?, prepared_date = ?, confirmed_by = ?,
-              confirmed_date = ?, reviewed_by = ?, reviewed_date = ?, approved_by = ?, approved_date = ?, updated_at = ?
+              technical_requirements = ?, remark = ?, confirmed_user_id = ?, reviewed_user_id = ?, approved_user_id = ?,
+              updated_at = ?
             WHERE id = ?
           `,
           [
-            payload.cardNo,
+            '',
             payload.planNumber,
             payload.customerCode,
             payload.orderDate,
@@ -805,32 +1921,32 @@ export class ProcessCardRepository {
             payload.deliveryStatus,
             payload.standard,
             payload.technicalRequirements,
-            payload.remark,
-            payload.preparedBy,
-            payload.preparedDate,
-            payload.confirmedBy,
-            payload.confirmedDate,
-            payload.reviewedBy,
-            payload.reviewedDate,
-            payload.approvedBy,
-            payload.approvedDate,
+            FIXED_REMARK,
+            payload.confirmedUserId,
+            payload.reviewedUserId,
+            payload.approvedUserId,
             now,
             cardId,
           ],
         );
-        this.sqlite.run('DELETE FROM card_operations WHERE card_id = ?', [cardId]);
       } else {
+        if (!hasWorkflowRole(actor, 'prepare')) {
+          throw new Error('只有具备编制权限的账号才能新建工艺卡。');
+        }
+
         this.sqlite.run(
           `
             INSERT INTO process_cards
             (id, card_no, plan_number, customer_code, order_date, product_name, material, specification, quantity,
              delivery_date, delivery_status, standard, technical_requirements, remark, prepared_by, prepared_date,
-             confirmed_by, confirmed_date, reviewed_by, reviewed_date, approved_by, approved_date, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             confirmed_by, confirmed_date, reviewed_by, reviewed_date, approved_by, approved_date, status, current_step,
+             current_handler_user_id, created_by_user_id, confirmed_user_id, reviewed_user_id, approved_user_id, submitted_at,
+             locked_at, version_no, source_card_id, last_return_comment, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           `,
           [
             cardId,
-            payload.cardNo,
+            '',
             payload.planNumber,
             payload.customerCode,
             payload.orderDate,
@@ -842,90 +1958,191 @@ export class ProcessCardRepository {
             payload.deliveryStatus,
             payload.standard,
             payload.technicalRequirements,
-            payload.remark,
-            payload.preparedBy,
-            payload.preparedDate,
-            payload.confirmedBy,
-            payload.confirmedDate,
-            payload.reviewedBy,
-            payload.reviewedDate,
-            payload.approvedBy,
-            payload.approvedDate,
+            FIXED_REMARK,
+            '',
+            '',
+            '',
+            '',
+            '',
+            '',
+            '',
+            '',
+            'draft',
+            'prepare',
+            actor.id,
+            actor.id,
+            payload.confirmedUserId,
+            payload.reviewedUserId,
+            payload.approvedUserId,
+            '',
+            '',
+            1,
+            payload.sourceCardId ?? '',
+            '',
             now,
             now,
           ],
         );
       }
 
-      for (const operation of payload.operations
-        .filter(hasMeaningfulOperationContent)
-        .sort((a, b) => a.sortOrder - b.sortOrder)) {
-        const operationId = randomUUID();
-        this.sqlite.run(
-          `
-            INSERT INTO card_operations
-            (id, card_id, operation_code, sort_order, enabled, department, special_characteristic, delivery_time, other_requirements, remark)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-          `,
-          [
-            operationId,
-            cardId,
-            operation.operationCode,
-            operation.sortOrder,
-            operation.enabled ? 1 : 0,
-            operation.department,
-            operation.specialCharacteristic,
-            operation.deliveryTime,
-            operation.otherRequirements,
-            operation.remark,
-          ],
-        );
-
-        for (const optionCode of operation.selectedOptionCodes) {
-          this.sqlite.run(
-            'INSERT INTO card_operation_selected_options (id, card_operation_id, option_code) VALUES (?, ?, ?)',
-            [randomUUID(), operationId, optionCode],
-          );
-        }
-
-        for (const detail of operation.details) {
-          const hasValues =
-            detail.detailType.trim() || Object.values(detail.params).some((value) => value.trim());
-          if (!hasValues && !operation.enabled) {
-            continue;
-          }
-
-          this.sqlite.run(
-            `
-              INSERT INTO operation_details
-              (id, card_operation_id, detail_seq, detail_type, display_text, params_json)
-              VALUES (?, ?, ?, ?, ?, ?)
-            `,
-            [
-              randomUUID(),
-              operationId,
-              detail.detailSeq,
-              detail.detailType,
-              detail.displayText ?? '',
-              JSON.stringify(detail.params),
-            ],
-          );
-        }
-      }
+      this.writeOperations(cardId, payload.operations);
     });
 
     await this.sqlite.persist();
-    return this.getProcessCard(cardId);
+    const saved = await this.getProcessCard(cardId, actor);
+    if (!saved) {
+      throw new Error('保存后的工艺卡读取失败。');
+    }
+
+    const changes = buildProcessCardChanges(beforePayload, saved);
+    this.writeAuditLog({
+      category: 'process_card',
+      entityType: 'process_card',
+      entityId: cardId,
+      action: isNewCard ? 'create' : 'update',
+      actor,
+      summary: `${isNewCard ? '新建' : '编辑'}工艺卡：${saved.planNumber || saved.productName || cardId}`,
+      detailText: isNewCard ? '创建了一张新的工艺卡。' : '保存了工艺卡修改。',
+      changes,
+      ipAddress,
+    });
+    await this.sqlite.persist();
+    return saved;
   }
 
-  async deleteProcessCard(id: string) {
-    this.sqlite.run('DELETE FROM process_cards WHERE id = ?', [id]);
+  async performApprovalAction(cardId: string, request: ApprovalActionRequest, actor: AuthUser, ipAddress = '') {
+    const payload = approvalActionSchema.parse(request);
+    const comment = payload.comment?.trim() ?? '';
+    requireCommentForAction(payload.action, comment);
+
+    const [card] = this.sqlite.query<CardRow>('SELECT * FROM process_cards WHERE id = ?', [cardId]);
+    if (!card) {
+      throw new Error('工艺卡不存在。');
+    }
+
+    if (!getAvailableActions(card, actor).includes(payload.action)) {
+      throw new Error('当前状态下你没有执行此流程动作的权限。');
+    }
+
+    if (payload.action === 'submit_confirm' && !card.confirmed_user_id.trim()) {
+      throw new Error('请先指定确认人后再提交确认。');
+    }
+    if (payload.action === 'submit_review' && !card.reviewed_user_id.trim()) {
+      throw new Error('请先指定审核人后再提交审核。');
+    }
+    if (payload.action === 'submit_approve' && !card.approved_user_id.trim()) {
+      throw new Error('请先指定批准人后再提交批准。');
+    }
+
+    const next = getActionResult(card, payload.action, comment, actor);
+
+    this.sqlite.transaction(() => {
+      this.sqlite.run(
+        `
+          UPDATE process_cards
+          SET status = ?, current_step = ?, current_handler_user_id = ?, submitted_at = ?, locked_at = ?,
+              prepared_by = ?, prepared_date = ?, confirmed_by = ?, confirmed_date = ?,
+              reviewed_by = ?, reviewed_date = ?, approved_by = ?, approved_date = ?,
+              last_return_comment = ?, updated_at = ?
+          WHERE id = ?
+        `,
+        [
+          next.status,
+          next.current_step,
+          next.current_handler_user_id,
+          next.submitted_at,
+          next.locked_at,
+          next.prepared_by,
+          next.prepared_date,
+          next.confirmed_by,
+          next.confirmed_date,
+          next.reviewed_by,
+          next.reviewed_date,
+          next.approved_by,
+          next.approved_date,
+          next.last_return_comment,
+          next.updated_at,
+          cardId,
+        ],
+      );
+
+      this.sqlite.run(
+        `
+          INSERT INTO process_card_approval_logs
+          (id, card_id, action, from_status, to_status, actor_user_id, target_user_id, comment, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `,
+        [
+          randomUUID(),
+          cardId,
+          payload.action,
+          card.status,
+          next.status,
+          actor.id,
+          getTargetUserIdForAction(card, payload.action),
+          comment,
+          new Date().toISOString(),
+        ],
+      );
+
+      this.writeAuditLog({
+        category: 'approval',
+        entityType: 'process_card',
+        entityId: cardId,
+        action: payload.action,
+        actor,
+        targetUserId: getTargetUserIdForAction(card, payload.action),
+        targetDisplayName: this.getUserDisplayName(getTargetUserIdForAction(card, payload.action)),
+        summary: `审批动作：${payload.action} -> ${card.plan_number || card.product_name || cardId}`,
+        detailText: comment,
+        changes: [
+          {
+            field: '流程状态',
+            before: card.status,
+            after: next.status,
+          },
+        ],
+        ipAddress,
+      });
+    });
+
+    await this.sqlite.persist();
+    return this.getProcessCard(cardId, actor);
+  }
+
+  async deleteProcessCard(id: string, actor: AuthUser, ipAddress = '') {
+    const [card] = this.sqlite.query<CardRow>('SELECT * FROM process_cards WHERE id = ?', [id]);
+    if (!card) {
+      return;
+    }
+
+    if (!getPermissions(card, actor).canDelete) {
+      throw new Error('当前状态下你没有删除这张工艺卡的权限。');
+    }
+
+    this.sqlite.transaction(() => {
+      this.sqlite.run('DELETE FROM process_cards WHERE id = ?', [id]);
+      this.writeAuditLog({
+        category: 'process_card',
+        entityType: 'process_card',
+        entityId: id,
+        action: 'delete',
+        actor,
+        summary: `删除工艺卡：${card.plan_number || card.product_name || id}`,
+        detailText: '',
+        changes: [
+          { field: '计划单号', before: card.plan_number || '-', after: '-' },
+          { field: '产品名称', before: card.product_name || '-', after: '-' },
+        ],
+        ipAddress,
+      });
+    });
     await this.sqlite.persist();
   }
 
   async buildBatchExport(request: BatchExportRequest) {
     const payload = z.object({ ids: z.array(z.string()).min(1) }).parse(request);
-    const cards = await Promise.all(payload.ids.map((id) => this.getProcessCard(id)));
+    const cards = await Promise.all(payload.ids.map((id) => this.getProcessCard(id, null)));
     return cards
       .filter((card): card is ProcessCardPayload => Boolean(card))
       .map((card) => ({

@@ -5,11 +5,14 @@ import type {
   ProcessCardListFilters,
   ProcessCardListItem,
 } from '../../shared/types';
+import { CARD_STATUS_LABELS } from '../../shared/types';
+import { useAuth } from '../auth/AuthProvider';
 import { api } from '../lib/api';
 import { exportProcessCardsZip } from '../lib/batch-export';
 
 export function ListPage() {
   const navigate = useNavigate();
+  const { hasWorkflowRole } = useAuth();
   const [definitions, setDefinitions] = useState<OperationDefinition[]>([]);
   const [cards, setCards] = useState<ProcessCardListItem[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -27,6 +30,7 @@ export function ListPage() {
     deliveryDate: '',
     operationCode: '',
     heatTreatmentType: '',
+    status: '',
   });
 
   const deferredKeyword = useDeferredValue(filters.keyword ?? '');
@@ -38,25 +42,27 @@ export function ListPage() {
   const allVisibleSelected =
     allVisibleIds.length > 0 && allVisibleIds.every((id) => selectedIds.includes(id));
 
+  const loadCards = async (nextFilters: ProcessCardListFilters) => {
+    setLoading(true);
+
+    try {
+      const response = await api.listProcessCards(nextFilters);
+      setCards(response.items);
+      setSelectedIds((current) => current.filter((id) => response.items.some((item) => item.id === id)));
+      setError('');
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : '列表加载失败');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
     void api.getOperationDefinitions().then((response) => setDefinitions(response.items));
   }, []);
 
   useEffect(() => {
-    const nextFilters = { ...filters, keyword: deferredKeyword };
-    setLoading(true);
-
-    void api
-      .listProcessCards(nextFilters)
-      .then((response) => {
-        setCards(response.items);
-        setSelectedIds((current) =>
-          current.filter((id) => response.items.some((item) => item.id === id)),
-        );
-        setError('');
-      })
-      .catch((reason) => setError(reason instanceof Error ? reason.message : '列表加载失败'))
-      .finally(() => setLoading(false));
+    void loadCards({ ...filters, keyword: deferredKeyword });
   }, [
     deferredKeyword,
     filters.customerCode,
@@ -67,6 +73,7 @@ export function ListPage() {
     filters.planNumber,
     filters.productName,
     filters.specification,
+    filters.status,
   ]);
 
   const heatTreatmentOptions = useMemo(
@@ -96,8 +103,7 @@ export function ListPage() {
     }
 
     await api.deleteProcessCard(id);
-    const response = await api.listProcessCards({ ...filters, keyword: deferredKeyword });
-    setCards(response.items);
+    await loadCards({ ...filters, keyword: deferredKeyword });
   };
 
   const handleBatchExport = async () => {
@@ -115,14 +121,10 @@ export function ListPage() {
         cards: selectedCards,
         definitions,
         onProgress: (current, total, card) => {
-          setBatchHint(
-            `正在生成第 ${current}/${total} 份 PDF：${card.planNumber || card.productName}`,
-          );
+          setBatchHint(`正在生成第 ${current}/${total} 份 PDF：${card.planNumber || card.productName}`);
         },
       });
-      setBatchHint(
-        `批量导出完成，已下载包含 ${selectedCards.length} 份 PDF 文件的 ZIP 压缩包。`,
-      );
+      setBatchHint(`批量导出完成，已下载包含 ${selectedCards.length} 份 PDF 的 ZIP 压缩包。`);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '批量导出失败');
     } finally {
@@ -136,21 +138,18 @@ export function ListPage() {
         <div>
           <p className="page__eyebrow">Process Card Library</p>
           <h2>工艺卡列表</h2>
-          <p>支持按计划单号、材质、工序和热处理类型快速筛选。</p>
+          <p>支持按状态、关键字段、工序和热处理类型进行查询，并可批量导出。</p>
         </div>
         <div className="toolbar">
-          <Link to="/cards/new" className="button button--primary">
-            新建工艺卡
-          </Link>
+          {hasWorkflowRole('prepare') ? (
+            <Link to="/cards/new" className="button button--primary">
+              新建工艺卡
+            </Link>
+          ) : null}
           <button type="button" className="button" onClick={toggleSelectAllVisible} disabled={cards.length === 0}>
             {allVisibleSelected ? '取消全选' : '全选当前列表'}
           </button>
-          <button
-            type="button"
-            className="button"
-            onClick={() => void handleBatchExport()}
-            disabled={exporting}
-          >
+          <button type="button" className="button" onClick={() => void handleBatchExport()} disabled={exporting}>
             {exporting ? '导出中...' : '批量导出'}
           </button>
         </div>
@@ -175,9 +174,7 @@ export function ListPage() {
             <span>计划单号</span>
             <input
               value={filters.planNumber}
-              onChange={(event) =>
-                setFilters((current) => ({ ...current, planNumber: event.target.value }))
-              }
+              onChange={(event) => setFilters((current) => ({ ...current, planNumber: event.target.value }))}
             />
           </label>
 
@@ -185,9 +182,7 @@ export function ListPage() {
             <span>客户代码</span>
             <input
               value={filters.customerCode}
-              onChange={(event) =>
-                setFilters((current) => ({ ...current, customerCode: event.target.value }))
-              }
+              onChange={(event) => setFilters((current) => ({ ...current, customerCode: event.target.value }))}
             />
           </label>
 
@@ -195,9 +190,7 @@ export function ListPage() {
             <span>产品名称</span>
             <input
               value={filters.productName}
-              onChange={(event) =>
-                setFilters((current) => ({ ...current, productName: event.target.value }))
-              }
+              onChange={(event) => setFilters((current) => ({ ...current, productName: event.target.value }))}
             />
           </label>
 
@@ -213,9 +206,7 @@ export function ListPage() {
             <span>规格</span>
             <input
               value={filters.specification}
-              onChange={(event) =>
-                setFilters((current) => ({ ...current, specification: event.target.value }))
-              }
+              onChange={(event) => setFilters((current) => ({ ...current, specification: event.target.value }))}
             />
           </label>
 
@@ -224,19 +215,30 @@ export function ListPage() {
             <input
               type="date"
               value={filters.deliveryDate}
-              onChange={(event) =>
-                setFilters((current) => ({ ...current, deliveryDate: event.target.value }))
-              }
+              onChange={(event) => setFilters((current) => ({ ...current, deliveryDate: event.target.value }))}
             />
+          </label>
+
+          <label className="field">
+            <span>流程状态</span>
+            <select
+              value={filters.status}
+              onChange={(event) => setFilters((current) => ({ ...current, status: event.target.value as ProcessCardListFilters['status'] }))}
+            >
+              <option value="">全部</option>
+              {Object.entries(CARD_STATUS_LABELS).map(([status, label]) => (
+                <option key={status} value={status}>
+                  {label}
+                </option>
+              ))}
+            </select>
           </label>
 
           <label className="field">
             <span>包含工序</span>
             <select
               value={filters.operationCode}
-              onChange={(event) =>
-                setFilters((current) => ({ ...current, operationCode: event.target.value }))
-              }
+              onChange={(event) => setFilters((current) => ({ ...current, operationCode: event.target.value }))}
             >
               <option value="">全部</option>
               {definitions.map((item) => (
@@ -251,9 +253,7 @@ export function ListPage() {
             <span>热处理类型</span>
             <select
               value={filters.heatTreatmentType}
-              onChange={(event) =>
-                setFilters((current) => ({ ...current, heatTreatmentType: event.target.value }))
-              }
+              onChange={(event) => setFilters((current) => ({ ...current, heatTreatmentType: event.target.value }))}
             >
               <option value="">全部</option>
               {heatTreatmentOptions.map((item) => (
@@ -269,9 +269,7 @@ export function ListPage() {
       <section className="panel">
         <div className="panel__header">
           <h3>列表结果</h3>
-          <span>
-            {loading ? '加载中...' : `共 ${cards.length} 条，已选择 ${selectedIds.length} 条`}
-          </span>
+          <span>{loading ? '加载中...' : `共 ${cards.length} 条，已选择 ${selectedIds.length} 条`}</span>
         </div>
 
         {error ? <div className="state state--error">{error}</div> : null}
@@ -291,13 +289,12 @@ export function ListPage() {
                   />
                 </th>
                 <th>计划单号</th>
-                <th>客户代码</th>
-                <th>产品名称</th>
-                <th>材质 / 规格</th>
-                <th>交付日期</th>
+                <th>产品信息</th>
+                <th>状态</th>
+                <th>当前处理人</th>
                 <th>工序</th>
                 <th>热处理</th>
-                <th>更新时间</th>
+                <th>更新</th>
                 <th>操作</th>
               </tr>
             </thead>
@@ -311,40 +308,58 @@ export function ListPage() {
                       onChange={() => toggleSelected(item.id)}
                     />
                   </td>
-                  <td>{item.planNumber}</td>
-                  <td>{item.customerCode}</td>
-                  <td>{item.productName}</td>
                   <td>
-                    {item.material}
+                    {item.planNumber}
                     <br />
-                    {item.specification}
+                    V{item.versionNo}
                   </td>
-                  <td>{item.deliveryDate}</td>
+                  <td>
+                    <strong>{item.productName}</strong>
+                    <br />
+                    {item.material} / {item.specification}
+                    <br />
+                    {item.customerCode}
+                  </td>
+                  <td>
+                    {CARD_STATUS_LABELS[item.status]}
+                    {item.lastReturnComment ? <div className="table-note">{item.lastReturnComment}</div> : null}
+                  </td>
+                  <td>{item.currentHandlerName || '-'}</td>
                   <td>{item.enabledOperationCodes.map((code) => definitionMap.get(code) ?? code).join('、')}</td>
-                  <td>{item.heatTreatmentTypes.join('、')}</td>
+                  <td>{item.heatTreatmentTypes.join('、') || '-'}</td>
                   <td>{new Date(item.updatedAt).toLocaleString('zh-CN')}</td>
                   <td className="table-actions">
-                    <button
-                      type="button"
-                      className="link-button"
-                      onClick={() => navigate(`/cards/${item.id}/edit`)}
-                    >
-                      编辑
-                    </button>
-                    <button
-                      type="button"
-                      className="link-button"
-                      onClick={() => navigate(`/cards/${item.id}/print`)}
-                    >
-                      打印
-                    </button>
-                    <button
-                      type="button"
-                      className="link-button danger"
-                      onClick={() => void handleDelete(item.id)}
-                    >
-                      删除
-                    </button>
+                    {item.permissions.canEdit ? (
+                      <>
+                        <button
+                          type="button"
+                          className="link-button"
+                          onClick={() => navigate(`/cards/${item.id}/edit`)}
+                        >
+                          编辑
+                        </button>
+                        <button
+                          type="button"
+                          className="link-button"
+                          onClick={() => navigate(`/cards/${item.id}/print`)}
+                        >
+                          查看
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        type="button"
+                        className="link-button"
+                        onClick={() => navigate(`/cards/${item.id}/print`)}
+                      >
+                        审阅
+                      </button>
+                    )}
+                    {item.permissions.canDelete ? (
+                      <button type="button" className="link-button danger" onClick={() => void handleDelete(item.id)}>
+                        删除
+                      </button>
+                    ) : null}
                   </td>
                 </tr>
               ))}

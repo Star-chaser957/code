@@ -6,7 +6,7 @@ import {
   useState,
   type PropsWithChildren,
 } from 'react';
-import type { AuthUser, LoginRequest } from '../../shared/types';
+import type { AuthUser, LoginRequest, WorkflowRole } from '../../shared/types';
 import { api } from '../lib/api';
 import { clearAuthToken, getAuthToken, setAuthToken } from '../lib/auth-store';
 
@@ -14,6 +14,7 @@ type AuthContextValue = {
   user: AuthUser | null;
   loading: boolean;
   isAdmin: boolean;
+  hasWorkflowRole: (role: WorkflowRole) => boolean;
   login: (payload: LoginRequest) => Promise<void>;
   logout: () => Promise<void>;
 };
@@ -64,6 +65,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
       user,
       loading,
       isAdmin: user?.role === 'admin',
+      hasWorkflowRole: (role) => Boolean(user && (user.role === 'admin' || user.workflowRoles.includes(role))),
       login: async (payload) => {
         const response = await api.login(payload);
         setAuthToken(response.token);

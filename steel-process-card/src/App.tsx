@@ -5,7 +5,9 @@ import { EditorPage } from './pages/EditorPage';
 import { ListPage } from './pages/ListPage';
 import { LoginPage } from './pages/LoginPage';
 import { PrintPage } from './pages/PrintPage';
+import { AuditLogPage } from './pages/AuditLogPage';
 import { SettingsDepartmentsPage } from './pages/SettingsDepartmentsPage';
+import { UserManagementPage } from './pages/UserManagementPage';
 
 export default function App() {
   return (
@@ -29,6 +31,8 @@ export default function App() {
         <Route path="/cards/new" element={<EditorPage />} />
         <Route path="/cards/:id/edit" element={<EditorPage />} />
         <Route path="/settings/departments" element={<SettingsDepartmentsPage />} />
+        <Route path="/settings/users" element={<UserManagementPage />} />
+        <Route path="/settings/audit-logs" element={<AuditLogPage />} />
       </Route>
       <Route
         path="/cards/:id/print"

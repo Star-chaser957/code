@@ -24,10 +24,7 @@ export function LoginPage() {
     setSubmitting(true);
 
     try {
-      await login({
-        username,
-        password,
-      });
+      await login({ username, password });
       setError('');
       navigate(from, { replace: true });
     } catch (reason) {
@@ -41,22 +38,18 @@ export function LoginPage() {
     <div className="login-shell">
       <div className="login-card">
         <div className="login-brand">
-          <img src="/logo.png" alt="钢棒生产工艺卡系统" />
+          <img src="/logo.png" alt="Steel Process Card" />
           <div>
             <p className="page__eyebrow">Steel Process Card</p>
             <h1>钢棒/型钢生产工艺卡系统</h1>
-            <p>登录后即可录入、查询、打印工艺卡。管理员账号可维护系统字典。</p>
+            <p>登录后即可按编制、确认、审核、批准流程处理工艺卡，管理员可维护系统字典。</p>
           </div>
         </div>
 
         <form className="login-form" onSubmit={(event) => void handleSubmit(event)}>
           <label className="field">
             <span>账号</span>
-            <input
-              value={username}
-              autoComplete="username"
-              onChange={(event) => setUsername(event.target.value)}
-            />
+            <input value={username} autoComplete="username" onChange={(event) => setUsername(event.target.value)} />
           </label>
 
           <label className="field">
@@ -79,7 +72,10 @@ export function LoginPage() {
         <div className="login-hint">
           <strong>默认账号</strong>
           <p>管理员：admin / admin123</p>
-          <p>普通用户：operator / operator123</p>
+          <p>编制：operator / operator123</p>
+          <p>确认：confirmer / confirm123</p>
+          <p>审核：reviewer / review123</p>
+          <p>批准：approver / approve123</p>
         </div>
       </div>
     </div>

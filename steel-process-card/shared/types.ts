@@ -1,5 +1,31 @@
 export type DetailMode = 'single' | 'multiple' | 'multiSelect' | 'checklist';
 
+export type WorkflowRole = 'prepare' | 'confirm' | 'review' | 'approve';
+
+export type UserRole = 'admin' | 'user';
+
+export type CardWorkflowStatus =
+  | 'draft'
+  | 'pending_confirm'
+  | 'pending_review'
+  | 'pending_approve'
+  | 'approved'
+  | 'rejected_to_prepare'
+  | 'rejected_to_confirm'
+  | 'rejected_to_review';
+
+export type WorkflowStep = 'prepare' | 'confirm' | 'review' | 'approve';
+
+export type ApprovalAction =
+  | 'submit_confirm'
+  | 'return_prepare'
+  | 'submit_review'
+  | 'reject_to_prepare'
+  | 'reject_to_confirm'
+  | 'submit_approve'
+  | 'reject_to_review'
+  | 'approve';
+
 export type OperationFieldDefinition = {
   key: string;
   label: string;
@@ -51,6 +77,26 @@ export type CardOperation = {
   details: OperationDetail[];
 };
 
+export type ApprovalLog = {
+  id: string;
+  action: ApprovalAction;
+  fromStatus: CardWorkflowStatus;
+  toStatus: CardWorkflowStatus;
+  actorUserId: string;
+  actorUsername: string;
+  actorDisplayName: string;
+  targetUserId: string;
+  targetDisplayName: string;
+  comment: string;
+  createdAt: string;
+};
+
+export type CardPermissions = {
+  canEdit: boolean;
+  canDelete: boolean;
+  availableActions: ApprovalAction[];
+};
+
 export type ProcessCardPayload = {
   id?: string;
   cardNo: string;
@@ -74,6 +120,22 @@ export type ProcessCardPayload = {
   reviewedDate: string;
   approvedBy: string;
   approvedDate: string;
+  status: CardWorkflowStatus;
+  currentStep: WorkflowStep;
+  currentHandlerUserId: string;
+  currentHandlerName: string;
+  createdByUserId: string;
+  createdByName: string;
+  confirmedUserId: string;
+  reviewedUserId: string;
+  approvedUserId: string;
+  versionNo: number;
+  sourceCardId: string;
+  submittedAt: string;
+  lockedAt: string;
+  lastReturnComment: string;
+  approvalLogs: ApprovalLog[];
+  permissions: CardPermissions;
   createdAt?: string;
   updatedAt?: string;
   operations: CardOperation[];
@@ -89,6 +151,7 @@ export type ProcessCardListFilters = {
   deliveryDate?: string;
   operationCode?: string;
   heatTreatmentType?: string;
+  status?: CardWorkflowStatus | '';
 };
 
 export type ProcessCardListItem = {
@@ -101,8 +164,14 @@ export type ProcessCardListItem = {
   specification: string;
   deliveryDate: string;
   updatedAt: string;
+  status: CardWorkflowStatus;
+  currentStep: WorkflowStep;
+  currentHandlerName: string;
+  versionNo: number;
+  lastReturnComment: string;
   enabledOperationCodes: string[];
   heatTreatmentTypes: string[];
+  permissions: Pick<CardPermissions, 'canEdit' | 'canDelete'>;
 };
 
 export type DepartmentOption = {
@@ -123,13 +192,74 @@ export type ProductPrefillCandidate = {
   operations: CardOperation[];
 };
 
-export type UserRole = 'admin' | 'user';
-
-export type AuthUser = {
+export type UserSummary = {
   id: string;
   username: string;
   displayName: string;
   role: UserRole;
+  workflowRoles: WorkflowRole[];
+  isActive: boolean;
+};
+
+export type AuthUser = UserSummary;
+
+export type UserAccount = UserSummary & {
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type UserAccountCreateRequest = {
+  username: string;
+  displayName: string;
+  password: string;
+  role: UserRole;
+  workflowRoles: WorkflowRole[];
+  isActive: boolean;
+};
+
+export type UserAccountUpdateRequest = {
+  displayName: string;
+  role: UserRole;
+  workflowRoles: WorkflowRole[];
+};
+
+export type UserPasswordResetRequest = {
+  password: string;
+};
+
+export type UserActiveToggleRequest = {
+  isActive: boolean;
+};
+
+export type AuditLogCategory = 'auth' | 'process_card' | 'approval' | 'dictionary' | 'user';
+
+export type AuditLogChange = {
+  field: string;
+  before: string;
+  after: string;
+};
+
+export type AuditLogEntry = {
+  id: string;
+  category: AuditLogCategory;
+  entityType: string;
+  entityId: string;
+  action: string;
+  actorUserId: string;
+  actorDisplayName: string;
+  targetUserId: string;
+  targetDisplayName: string;
+  summary: string;
+  detailText: string;
+  changes: AuditLogChange[];
+  ipAddress: string;
+  createdAt: string;
+};
+
+export type AuditLogFilters = {
+  category?: AuditLogCategory | '';
+  actorUserId?: string;
+  keyword?: string;
 };
 
 export type LoginRequest = {
@@ -140,6 +270,11 @@ export type LoginRequest = {
 export type LoginResponse = {
   token: string;
   user: AuthUser;
+};
+
+export type ApprovalActionRequest = {
+  action: ApprovalAction;
+  comment?: string;
 };
 
 export const FIXED_REMARK =
@@ -153,6 +288,42 @@ export const DEFAULT_DEPARTMENT_OPTIONS = [
   '精整',
   '质检',
   '包装',
+];
+
+export const WORKFLOW_ROLE_LABELS: Record<WorkflowRole, string> = {
+  prepare: '编制',
+  confirm: '确认',
+  review: '审核',
+  approve: '批准',
+};
+
+export const CARD_STATUS_LABELS: Record<CardWorkflowStatus, string> = {
+  draft: '草稿',
+  pending_confirm: '待确认',
+  pending_review: '待审核',
+  pending_approve: '待批准',
+  approved: '已批准',
+  rejected_to_prepare: '退回编制',
+  rejected_to_confirm: '退回确认',
+  rejected_to_review: '退回审核',
+};
+
+export const APPROVAL_ACTION_LABELS: Record<ApprovalAction, string> = {
+  submit_confirm: '提交确认',
+  return_prepare: '退回编制',
+  submit_review: '提交审核',
+  reject_to_prepare: '驳回编制',
+  reject_to_confirm: '驳回确认',
+  submit_approve: '提交批准',
+  reject_to_review: '退回审核',
+  approve: '批准通过',
+};
+
+export const APPROVAL_ACTION_COMMENT_REQUIRED: ApprovalAction[] = [
+  'return_prepare',
+  'reject_to_prepare',
+  'reject_to_confirm',
+  'reject_to_review',
 ];
 
 export const MAIN_INFO_FIELDS: Array<{
@@ -177,14 +348,13 @@ export const MAIN_INFO_FIELDS: Array<{
 export const SIGNATURE_FIELDS: Array<{
   key: keyof ProcessCardPayload;
   label: string;
-  type?: 'date';
 }> = [
   { key: 'preparedBy', label: '编制' },
-  { key: 'preparedDate', label: '编制日期', type: 'date' },
+  { key: 'preparedDate', label: '编制日期' },
   { key: 'confirmedBy', label: '确认' },
-  { key: 'confirmedDate', label: '确认日期', type: 'date' },
+  { key: 'confirmedDate', label: '确认日期' },
   { key: 'reviewedBy', label: '审核' },
-  { key: 'reviewedDate', label: '审核日期', type: 'date' },
+  { key: 'reviewedDate', label: '审核日期' },
   { key: 'approvedBy', label: '批准' },
-  { key: 'approvedDate', label: '批准日期', type: 'date' },
+  { key: 'approvedDate', label: '批准日期' },
 ];
