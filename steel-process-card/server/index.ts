@@ -1,9 +1,9 @@
-import path from 'node:path';
 import { access } from 'node:fs/promises';
-import { fileURLToPath } from 'node:url';
+import path from 'node:path';
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import fastifyStatic from '@fastify/static';
+import { appConfig, projectRoot } from './config';
 import { repository } from './db/repository';
 import { authRoutes } from './routes/auth';
 import { adminRoutes } from './routes/admin';
@@ -12,16 +12,13 @@ import { metaRoutes } from './routes/meta';
 import { processCardRoutes } from './routes/process-cards';
 
 const server = Fastify({
-  logger: false,
+  logger: appConfig.serverLogEnabled,
 });
-
-const serverRoot = path.dirname(fileURLToPath(import.meta.url));
-const projectRoot = path.resolve(serverRoot, '..');
 
 await repository.init();
 
 await server.register(cors, {
-  origin: true,
+  origin: appConfig.corsOrigin,
 });
 
 server.get('/api/health', async () => ({ status: 'ok' }));
@@ -63,9 +60,7 @@ try {
   });
 }
 
-const port = Number(process.env.PORT ?? 3001);
-
-server.listen({ port, host: '0.0.0.0' }).catch((error) => {
+server.listen({ port: appConfig.port, host: appConfig.host }).catch((error) => {
   console.error(error);
   process.exit(1);
 });

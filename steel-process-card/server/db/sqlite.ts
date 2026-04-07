@@ -2,10 +2,11 @@ import { createRequire } from 'node:module';
 import { readFile, writeFile, mkdir, access } from 'node:fs/promises';
 import path from 'node:path';
 import initSqlJs, { type BindParams, type Database, type QueryExecResult, type SqlJsStatic } from 'sql.js';
+import type { DatabaseClient } from './client';
 
 const require = createRequire(import.meta.url);
 
-export class SqliteService {
+export class SqliteService implements DatabaseClient {
   private sql?: SqlJsStatic;
   private db?: Database;
   private readonly filePath: string;
@@ -81,5 +82,9 @@ export class SqliteService {
   async persist() {
     const data = this.database.export();
     await writeFile(this.filePath, Buffer.from(data));
+  }
+
+  listColumns(table: string) {
+    return this.query<{ name: string }>(`PRAGMA table_info(${table})`).map((row) => row.name);
   }
 }

@@ -294,6 +294,7 @@ export type DashboardDistributionItem = {
 export type DashboardActivityItem = {
   id: string;
   category: AuditLogCategory;
+  entityId: string;
   title: string;
   actorDisplayName: string;
   createdAt: string;

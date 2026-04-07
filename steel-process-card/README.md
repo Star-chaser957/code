@@ -1,16 +1,15 @@
 # 生产工艺卡系统
 
-轻量型内部工艺卡管理系统 MVP，覆盖：
+轻量型内部生产工艺卡管理系统，当前已覆盖：
 
 - 工艺卡列表查询
-- 新建 / 编辑
+- 新建 / 编辑 / 审批
 - 工序动态启用
 - 热处理多条明细
-- 检验多选结构化保存
-- 打印预览
-- 浏览器打印 / 另存为 PDF
+- 打印预览与 PDF 导出
+- 工作台统计、账号管理、操作日志
 
-## 运行
+## 本地运行
 
 ```bash
 npm install
@@ -20,34 +19,73 @@ npm run dev
 - 前端：`http://localhost:5173`
 - 后端：`http://localhost:3001`
 
+## 环境变量
+
+项目已支持通过 `.env` 管理运行配置，请先复制模板：
+
+```bash
+cp .env.example .env
+```
+
+常用配置项：
+
+- `DB_CLIENT`
+- `HOST`
+- `PORT`
+- `CORS_ORIGIN`
+- `SQLITE_FILE_PATH`
+ - `POSTGRES_URL`
+- `SESSION_TTL_HOURS`
+- `SEED_DEFAULT_USERS`
+- `SEED_DEMO_CARD`
+- `VITE_API_BASE`
+
+## 生产构建
+
+```bash
+npm run build
+npm run start
+```
+
+切换到 PostgreSQL 运行时示例：
+
+```env
+DB_CLIENT=postgres
+POSTGRES_URL=postgres://postgres:password@127.0.0.1:5432/process_card
+```
+
+## PostgreSQL 迁移
+
+项目已补充 PostgreSQL 迁移资产：
+
+```bash
+npm run db:migrate:postgres
+```
+
+相关文档：
+
+- [PostgreSQL 迁移手册](d:\code\steel-process-card\docs\postgresql-migration.md)
+- [PostgreSQL 建表脚本](d:\code\steel-process-card\server\db\schema.postgres.sql)
+
 ## 技术栈
 
 - 前端：React 19 + TypeScript + Vite + React Router
 - 后端：Fastify + TypeScript
-- 数据存储：SQLite 模型 + `sql.js` 文件持久化
-- 打印：独立 HTML 打印模板 + 浏览器打印 / PDF
+- 图表：Chart.js + react-chartjs-2
+- 数据存储：SQLite 文件模型 + `sql.js`
+- 打印：HTML 打印模板 + 浏览器打印 / PDF
 
-## 数据结构
+## 主要文档
 
-- `process_cards`：工艺卡主表
-- `operation_definitions`：工序定义表
-- `operation_option_definitions`：工艺选项字典表
-- `card_operations`：工艺卡工序实例
-- `card_operation_selected_options`：工序勾选选项
-- `operation_details`：工序参数 / 多明细
+- [系统设计方案](d:\code\steel-process-card\docs\system-design.md)
+- [企业级技术与部署说明](d:\code\steel-process-card\docs\enterprise-deployment-and-integration.md)
+- [接口手册](d:\code\steel-process-card\docs\api-handbook.md)
+- [部署与运维手册](d:\code\steel-process-card\docs\deployment-runbook.md)
+- [PostgreSQL 迁移手册](d:\code\steel-process-card\docs\postgresql-migration.md)
 
-## 关键说明
+## 部署模板
 
-- “编制 / 确认 / 审核 / 批准”仅作为普通字段保存，不做审批流。
-- 热处理采用“一道工序 + 多条处理明细”建模。
-- 检验采用结构化多选，支持按检验项目查询。
-- 打印页与录入页分离，打印模板按 A4 竖版单页优先优化。
-
-## 主要目录
-
-```text
-shared/                 共享类型与工序目录
-server/                 Fastify 后端、SQLite schema、仓储层
-src/                    React 前端页面与打印模板
-docs/system-design.md   设计方案说明
-```
+- [Nginx 模板](d:\code\steel-process-card\deploy\nginx.conf)
+- [systemd 服务模板](d:\code\steel-process-card\deploy\steel-process-card.service)
+- [Linux 备份脚本](d:\code\steel-process-card\scripts\backup-db.sh)
+- [Windows 备份脚本](d:\code\steel-process-card\scripts\backup-db.ps1)

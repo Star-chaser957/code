@@ -612,3 +612,7 @@ DELETE /api/process-cards/{id}/force
 4. 统一接口规范与对接文档
 5. 增强消息、统计和外部集成能力
 
+当前项目已补充 PostgreSQL 第一阶段落地资产：
+- PostgreSQL schema
+- SQLite 到 PostgreSQL 的迁移脚本
+- 迁移手册

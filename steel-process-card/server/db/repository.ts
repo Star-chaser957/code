@@ -1,11 +1,11 @@
 import { randomBytes, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto';
 import path from 'node:path';
 import { readFile } from 'node:fs/promises';
-import { fileURLToPath } from 'node:url';
 import dayjs from 'dayjs';
 import isoWeek from 'dayjs/plugin/isoWeek.js';
 import { z } from 'zod';
-import { SqliteService } from './sqlite';
+import { appConfig, projectRoot } from '../config';
+import { createDatabaseClient } from './client';
 import { createDemoProcessCard, createEmptyOperation, PROCESS_CATALOG } from '../../shared/process-catalog';
 import type {
   ApprovalAction,
@@ -49,8 +49,6 @@ import {
   FIXED_REMARK,
 } from '../../shared/types';
 
-const serverRoot = path.dirname(fileURLToPath(import.meta.url));
-const projectRoot = path.resolve(serverRoot, '..', '..');
 dayjs.extend(isoWeek);
 
 const recordSchema = z.record(z.string(), z.string());
@@ -289,7 +287,7 @@ type AuditLogRow = {
   created_at: string;
 };
 
-const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 7;
+const SESSION_TTL_MS = 1000 * 60 * 60 * appConfig.sessionTtlHours;
 const WORKFLOW_ROLE_ORDER: WorkflowRole[] = ['prepare', 'confirm', 'review', 'approve'];
 
 const csvToArray = (value?: string) =>
@@ -663,28 +661,31 @@ function buildProcessCardChanges(before: ProcessCardPayload | null, after: Proce
 }
 
 export class ProcessCardRepository {
-  private readonly sqlite = new SqliteService(
-    path.join(projectRoot, 'server', 'data', 'process-cards.sqlite'),
-  );
+  private readonly sqlite = createDatabaseClient();
 
   async init() {
     await this.sqlite.init();
-    const schema = await readFile(path.join(projectRoot, 'server', 'db', 'schema.sql'), 'utf8');
+    const schemaFileName = appConfig.dbClient === 'postgres' ? 'schema.postgres.sql' : 'schema.sql';
+    const schema = await readFile(path.join(projectRoot, 'server', 'db', schemaFileName), 'utf8');
     this.sqlite.exec(schema);
     this.ensureWorkflowSchema();
     this.ensureSystemSchema();
     this.seedDefinitions();
     this.seedDepartmentOptions();
-    this.seedUsers();
-    this.seedUserRoles();
+    if (appConfig.seedDefaultUsers) {
+      this.seedUsers();
+      this.seedUserRoles();
+    }
     this.backfillLegacyWorkflowFields();
-    await this.seedDemoCard();
+    if (appConfig.seedDemoCard) {
+      await this.seedDemoCard();
+    }
     await this.sqlite.persist();
   }
 
   private ensureColumn(table: string, column: string, definition: string) {
-    const rows = this.sqlite.query<{ name: string }>(`PRAGMA table_info(${table})`);
-    if (!rows.some((row) => row.name === column)) {
+    const columns = this.sqlite.listColumns(table);
+    if (!columns.includes(column)) {
       this.sqlite.run(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
     }
   }
@@ -735,9 +736,16 @@ export class ProcessCardRepository {
       for (const definition of PROCESS_CATALOG) {
         this.sqlite.run(
           `
-            INSERT OR REPLACE INTO operation_definitions
+            INSERT INTO operation_definitions
             (code, name, default_order, detail_mode, allows_multiple_details, detail_label, field_config_json)
             VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (code) DO UPDATE SET
+              name = EXCLUDED.name,
+              default_order = EXCLUDED.default_order,
+              detail_mode = EXCLUDED.detail_mode,
+              allows_multiple_details = EXCLUDED.allows_multiple_details,
+              detail_label = EXCLUDED.detail_label,
+              field_config_json = EXCLUDED.field_config_json
           `,
           [
             definition.code,
@@ -1147,19 +1155,47 @@ export class ProcessCardRepository {
       { label: '已作废', value: cardRows.filter((row) => row.status === 'voided').length },
     ];
 
-    const recentActivities: DashboardActivityItem[] = this.sqlite
-      .query<AuditLogRow>(
+    const relatedCardIds = new Set<string>();
+
+    if (isAdmin(viewer)) {
+      cardRows.forEach((row) => relatedCardIds.add(row.id));
+    } else {
+      cardRows.forEach((row) => {
+        if (row.created_by_user_id === viewer.id) {
+          relatedCardIds.add(row.id);
+        }
+        if (hasWorkflowRole(viewer, 'confirm') && row.confirmed_user_id === viewer.id) {
+          relatedCardIds.add(row.id);
+        }
+        if (hasWorkflowRole(viewer, 'review') && row.reviewed_user_id === viewer.id) {
+          relatedCardIds.add(row.id);
+        }
+        if (hasWorkflowRole(viewer, 'approve') && row.approved_user_id === viewer.id) {
+          relatedCardIds.add(row.id);
+        }
+      });
+    }
+
+    const recentActivities: DashboardActivityItem[] =
+      relatedCardIds.size === 0
+        ? []
+        : this.sqlite
+            .query<AuditLogRow>(
         `
           SELECT *
           FROM audit_logs
           WHERE category IN ('process_card', 'approval')
+            AND entity_type = 'process_card'
+            AND entity_id IN (${Array.from({ length: relatedCardIds.size }, () => '?').join(', ')})
           ORDER BY created_at DESC
           LIMIT 8
         `,
+        [...relatedCardIds],
       )
       .map((row) => ({
         id: row.id,
         category: row.category,
+        entityId: row.entity_id,
         title: row.summary,
         actorDisplayName: row.actor_display_name || '系统',
         createdAt: row.created_at,

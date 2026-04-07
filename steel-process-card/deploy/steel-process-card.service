@@ -1,0 +1,19 @@
+[Unit]
+Description=Steel Process Card System
+After=network.target
+
+[Service]
+Type=simple
+User=xhs
+Group=xhs
+WorkingDirectory=/home/xhs/apps/steel-process-card
+Environment=NODE_ENV=production
+EnvironmentFile=/home/xhs/apps/steel-process-card/.env
+ExecStart=/usr/bin/npm run start
+Restart=always
+RestartSec=5
+StandardOutput=append:/var/log/steel-process-card/app.log
+StandardError=append:/var/log/steel-process-card/error.log
+
+[Install]
+WantedBy=multi-user.target

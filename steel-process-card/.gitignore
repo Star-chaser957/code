@@ -26,3 +26,10 @@ _frontend_out.txt
 _frontend_err.txt
 _server_out.txt
 _server_err.txt
+_backend_out.txt
+_backend_err.txt
+.env
+.env.local
+.env.production.local
+backups/
+server/data/*.sqlite
