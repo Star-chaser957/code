@@ -41,7 +41,7 @@ export function LoginPage() {
           <img src="/logo.png" alt="Steel Process Card" />
           <div>
             <p className="page__eyebrow">Steel Process Card</p>
-            <h1>钢棒/型钢生产工艺卡系统</h1>
+            <h1>生产工艺卡系统</h1>
             <p>登录后即可按编制、确认、审核、批准流程处理工艺卡，管理员可维护系统字典。</p>
           </div>
         </div>

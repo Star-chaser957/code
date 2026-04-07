@@ -33,9 +33,10 @@ export function PrintTemplate({
           <span>XH/D-03068</span>
         </div>
         <div className="print-title">
-          <h1>钢棒/型钢 生产工艺卡</h1>
+          <h1>生产工艺卡</h1>
           <span>{CARD_STATUS_LABELS[card.status]}</span>
         </div>
+        <div className="print-header__spacer" aria-hidden="true" />
       </header>
 
       <table className="print-meta">

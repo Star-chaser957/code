@@ -7,6 +7,7 @@ import fastifyStatic from '@fastify/static';
 import { repository } from './db/repository';
 import { authRoutes } from './routes/auth';
 import { adminRoutes } from './routes/admin';
+import { dashboardRoutes } from './routes/dashboard';
 import { metaRoutes } from './routes/meta';
 import { processCardRoutes } from './routes/process-cards';
 
@@ -26,6 +27,7 @@ await server.register(cors, {
 server.get('/api/health', async () => ({ status: 'ok' }));
 
 await server.register(authRoutes, { prefix: '/api/auth' });
+await server.register(dashboardRoutes, { prefix: '/api/dashboard' });
 await server.register(metaRoutes, { prefix: '/api/meta' });
 await server.register(adminRoutes, { prefix: '/api/admin' });
 await server.register(processCardRoutes, { prefix: '/api/process-cards' });

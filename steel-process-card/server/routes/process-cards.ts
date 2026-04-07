@@ -1,5 +1,5 @@
 import type { FastifyPluginAsync } from 'fastify';
-import { requireAuth } from '../auth';
+import { requireAdmin, requireAuth } from '../auth';
 import { repository } from '../db/repository';
 import type {
   ApprovalActionRequest,
@@ -91,6 +91,26 @@ export const processCardRoutes: FastifyPluginAsync = async (fastify) => {
     const { id } = request.params as { id: string };
     await repository.deleteProcessCard(id, user, request.ip);
     return { success: true };
+  });
+
+  fastify.post('/:id/void', async (request, reply) => {
+    const user = await requireAdmin(request, reply);
+    if (!user) {
+      return;
+    }
+
+    const { id } = request.params as { id: string };
+    return repository.voidProcessCard(id, user, request.ip);
+  });
+
+  fastify.delete('/:id/force', async (request, reply) => {
+    const user = await requireAdmin(request, reply);
+    if (!user) {
+      return;
+    }
+
+    const { id } = request.params as { id: string };
+    return repository.forceDeleteProcessCard(id, user, request.ip);
   });
 
   fastify.post('/export/batch', async (request, reply) => {

@@ -3,6 +3,7 @@ import type {
   AuditLogEntry,
   AuditLogFilters,
   BatchExportRequest,
+  DashboardOverview,
   DepartmentOption,
   LoginRequest,
   LoginResponse,
@@ -61,6 +62,8 @@ export const api = {
     }),
 
   getCurrentUser: async () => request<{ user: LoginResponse['user'] }>('/api/auth/me'),
+
+  getDashboardOverview: async () => request<DashboardOverview>('/api/dashboard/overview'),
 
   logout: async () =>
     request<{ success: boolean }>('/api/auth/logout', {
@@ -162,6 +165,16 @@ export const api = {
 
   deleteProcessCard: async (id: string) =>
     request<{ success: boolean }>(`/api/process-cards/${id}`, {
+      method: 'DELETE',
+    }),
+
+  voidProcessCard: async (id: string) =>
+    request<ProcessCardPayload>(`/api/process-cards/${id}/void`, {
+      method: 'POST',
+    }),
+
+  forceDeleteProcessCard: async (id: string) =>
+    request<{ success: boolean }>(`/api/process-cards/${id}/force`, {
       method: 'DELETE',
     }),
 

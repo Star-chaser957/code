@@ -10,6 +10,7 @@ export type CardWorkflowStatus =
   | 'pending_review'
   | 'pending_approve'
   | 'approved'
+  | 'voided'
   | 'rejected_to_prepare'
   | 'rejected_to_confirm'
   | 'rejected_to_review';
@@ -262,6 +263,51 @@ export type AuditLogFilters = {
   keyword?: string;
 };
 
+export type DashboardTaskSummary = {
+  draftCount: number;
+  pendingConfirmCount: number;
+  pendingReviewCount: number;
+  pendingApproveCount: number;
+  returnedCount: number;
+  totalPendingCount: number;
+};
+
+export type DashboardStatSummary = {
+  todayCreated: number;
+  weekCreated: number;
+  monthCreated: number;
+  yearCreated: number;
+  approvedCount: number;
+  voidedCount: number;
+};
+
+export type DashboardTrendPoint = {
+  label: string;
+  value: number;
+};
+
+export type DashboardDistributionItem = {
+  label: string;
+  value: number;
+};
+
+export type DashboardActivityItem = {
+  id: string;
+  category: AuditLogCategory;
+  title: string;
+  actorDisplayName: string;
+  createdAt: string;
+  statusLabel: string;
+};
+
+export type DashboardOverview = {
+  tasks: DashboardTaskSummary;
+  stats: DashboardStatSummary;
+  trend: DashboardTrendPoint[];
+  statusDistribution: DashboardDistributionItem[];
+  recentActivities: DashboardActivityItem[];
+};
+
 export type LoginRequest = {
   username: string;
   password: string;
@@ -303,6 +349,7 @@ export const CARD_STATUS_LABELS: Record<CardWorkflowStatus, string> = {
   pending_review: '待审核',
   pending_approve: '待批准',
   approved: '已批准',
+  voided: '已作废',
   rejected_to_prepare: '退回编制',
   rejected_to_confirm: '退回确认',
   rejected_to_review: '退回审核',

@@ -16,7 +16,6 @@ import {
   CARD_STATUS_LABELS,
   FIXED_REMARK,
   MAIN_INFO_FIELDS,
-  SIGNATURE_FIELDS,
 } from '../../shared/types';
 import { useAuth } from '../auth/AuthProvider';
 import { OperationEditor } from '../components/OperationEditor';
@@ -71,6 +70,7 @@ export function EditorPage() {
   const [prefillLoading, setPrefillLoading] = useState(false);
   const [prefillCandidates, setPrefillCandidates] = useState<ProductPrefillCandidate[]>([]);
   const [selectedPrefillId, setSelectedPrefillId] = useState('');
+  const [operationPickerExpanded, setOperationPickerExpanded] = useState(!isEditMode);
 
   useEffect(() => {
     const load = async () => {
@@ -141,6 +141,12 @@ export function EditorPage() {
     () => sortOperations((card?.operations ?? []).filter((item) => item.enabled)),
     [card],
   );
+
+  useEffect(() => {
+    if (enabledOperations.length === 0) {
+      setOperationPickerExpanded(true);
+    }
+  }, [enabledOperations.length]);
 
   const canEdit = !isEditMode || Boolean(card?.permissions.canEdit);
   const showApprovalPreview =
@@ -389,7 +395,7 @@ export function EditorPage() {
         </>
       ) : (
         <>
-          <section className="panel panel--compact">
+          <section className="panel panel--compact operation-panel">
             <div className="panel__header">
               <h3>主信息</h3>
             </div>
@@ -456,7 +462,70 @@ export function EditorPage() {
             ) : null}
           </section>
 
-          <section className="panel panel--compact">
+          <section className="panel panel--compact operation-panel">
+            <div className="panel__header">
+              <div>
+                <h3>工序启用</h3>
+                <span>先选择需要的工序，选完后可以收起选择区，低分辨率电脑会更方便填写。</span>
+              </div>
+              <div className="toolbar">
+                <span className="operation-picker-count">已启用 {enabledOperations.length} 道</span>
+                <button
+                  type="button"
+                  className="button button--ghost button--small"
+                  onClick={() => setOperationPickerExpanded((current) => !current)}
+                >
+                  {operationPickerExpanded ? '收起选择区' : '展开选择区'}
+                </button>
+              </div>
+            </div>
+
+            {enabledOperations.length > 0 ? (
+              <div className="operation-picker-summary">
+                {enabledOperations.map((operation) => {
+                  const definition = definitions.find((item) => item.code === operation.operationCode);
+                  if (!definition) {
+                    return null;
+                  }
+
+                  return (
+                    <button
+                      type="button"
+                      key={operation.operationCode}
+                      className="chip chip--compact"
+                      disabled={!canEdit}
+                      onClick={() => toggleOperation(operation.operationCode)}
+                    >
+                      {definition.name}
+                    </button>
+                  );
+                })}
+              </div>
+            ) : null}
+
+            {operationPickerExpanded ? (
+              <div className="operation-picker-grid">
+                {definitions.map((definition) => {
+                  const operation = card.operations.find((item) => item.operationCode === definition.code);
+                  const enabled = operation?.enabled ?? false;
+
+                  return (
+                    <button
+                      type="button"
+                      key={definition.code}
+                      className={`chip-button chip-button--dense ${enabled ? 'is-active' : ''}`}
+                      disabled={!canEdit}
+                      onClick={() => toggleOperation(definition.code)}
+                    >
+                      {definition.name}
+                    </button>
+                  );
+                })}
+              </div>
+            ) : null}
+          </section>
+
+          <section className="panel panel--compact operation-panel operation-panel--legacy">
             <div className="panel__header">
               <h3>工序启用</h3>
               <span>启用后下方会显示对应编辑卡片。</span>
@@ -580,12 +649,27 @@ export function EditorPage() {
               </select>
             </label>
 
-            {SIGNATURE_FIELDS.map((field) => (
-              <label key={field.key} className="field">
-                <span>{field.label}</span>
-                <input value={String(card[field.key] ?? '')} readOnly />
-              </label>
-            ))}
+            <div className="field field--full">
+              <span>签字信息</span>
+              <div className="signature-summary">
+                <div className="signature-summary__item">
+                  <strong>编制</strong>
+                  <span>{`${card.preparedBy || ''} ${card.preparedDate || ''}`.trim() || '-'}</span>
+                </div>
+                <div className="signature-summary__item">
+                  <strong>确认</strong>
+                  <span>{`${card.confirmedBy || ''} ${card.confirmedDate || ''}`.trim() || '-'}</span>
+                </div>
+                <div className="signature-summary__item">
+                  <strong>审核</strong>
+                  <span>{`${card.reviewedBy || ''} ${card.reviewedDate || ''}`.trim() || '-'}</span>
+                </div>
+                <div className="signature-summary__item">
+                  <strong>批准</strong>
+                  <span>{`${card.approvedBy || ''} ${card.approvedDate || ''}`.trim() || '-'}</span>
+                </div>
+              </div>
+            </div>
 
             <label className="field field--full">
               <span>最近退回意见</span>

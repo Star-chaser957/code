@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { RequireAuth, RequireGuest } from './components/RequireAuth';
 import { PageShell } from './components/PageShell';
+import { DashboardPage } from './pages/DashboardPage';
 import { EditorPage } from './pages/EditorPage';
 import { ListPage } from './pages/ListPage';
 import { LoginPage } from './pages/LoginPage';
@@ -27,7 +28,8 @@ export default function App() {
           </RequireAuth>
         }
       >
-        <Route path="/" element={<ListPage />} />
+        <Route path="/" element={<DashboardPage />} />
+        <Route path="/cards" element={<ListPage />} />
         <Route path="/cards/new" element={<EditorPage />} />
         <Route path="/cards/:id/edit" element={<EditorPage />} />
         <Route path="/settings/departments" element={<SettingsDepartmentsPage />} />

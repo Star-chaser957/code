@@ -12,7 +12,7 @@ import { exportProcessCardsZip } from '../lib/batch-export';
 
 export function ListPage() {
   const navigate = useNavigate();
-  const { hasWorkflowRole } = useAuth();
+  const { hasWorkflowRole, isAdmin } = useAuth();
   const [definitions, setDefinitions] = useState<OperationDefinition[]>([]);
   const [cards, setCards] = useState<ProcessCardListItem[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -103,6 +103,24 @@ export function ListPage() {
     }
 
     await api.deleteProcessCard(id);
+    await loadCards({ ...filters, keyword: deferredKeyword });
+  };
+
+  const handleVoid = async (id: string) => {
+    if (!window.confirm('确认将这张工艺卡作废吗？作废后会保留留痕，但不能再编辑。')) {
+      return;
+    }
+
+    await api.voidProcessCard(id);
+    await loadCards({ ...filters, keyword: deferredKeyword });
+  };
+
+  const handleForceDelete = async (id: string) => {
+    if (!window.confirm('确认强制删除这张工艺卡吗？该操作不可恢复。')) {
+      return;
+    }
+
+    await api.forceDeleteProcessCard(id);
     await loadCards({ ...filters, keyword: deferredKeyword });
   };
 
@@ -358,6 +376,20 @@ export function ListPage() {
                     {item.permissions.canDelete ? (
                       <button type="button" className="link-button danger" onClick={() => void handleDelete(item.id)}>
                         删除
+                      </button>
+                    ) : null}
+                    {isAdmin && item.status !== 'voided' ? (
+                      <button type="button" className="link-button" onClick={() => void handleVoid(item.id)}>
+                        作废
+                      </button>
+                    ) : null}
+                    {isAdmin ? (
+                      <button
+                        type="button"
+                        className="link-button danger"
+                        onClick={() => void handleForceDelete(item.id)}
+                      >
+                        强制删除
                       </button>
                     ) : null}
                   </td>

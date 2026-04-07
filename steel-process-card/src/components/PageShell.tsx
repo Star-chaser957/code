@@ -14,9 +14,9 @@ export function PageShell() {
         <div className="sidebar__brand">
           <img src="/logo.png" alt="Steel Process Card" />
           <div>
-            <p className="sidebar__eyebrow">Steel Process Card</p>
-            <h1>钢棒/型钢生产工艺卡系统</h1>
-            <p>轻量录入、结构化查询、审批留痕与独立打印模板。</p>
+            <p className="sidebar__eyebrow">Process Card Admin</p>
+            <h1>生产工艺卡系统</h1>
+            <p>录入、查询、审批、统计和打印统一在一个内部工作台完成。</p>
           </div>
         </div>
 
@@ -36,15 +36,25 @@ export function PageShell() {
           </button>
         </div>
 
-        <nav className="sidebar__nav">
-          <NavLink to="/" end className="nav-link">
-            工艺卡列表
-          </NavLink>
-          <NavLink to="/cards/new" className="nav-link">
-            新建工艺卡
-          </NavLink>
-          {isAdmin ? (
-            <>
+        <div className="sidebar__group">
+          <span className="sidebar__group-title">业务工作台</span>
+          <nav className="sidebar__nav">
+            <NavLink to="/" end className="nav-link">
+              工作台
+            </NavLink>
+            <NavLink to="/cards" end className="nav-link">
+              工艺卡列表
+            </NavLink>
+            <NavLink to="/cards/new" className="nav-link">
+              新建工艺卡
+            </NavLink>
+          </nav>
+        </div>
+
+        {isAdmin ? (
+          <div className="sidebar__group">
+            <span className="sidebar__group-title">系统管理</span>
+            <nav className="sidebar__nav">
               <NavLink to="/settings/departments" className="nav-link">
                 生产部门设置
               </NavLink>
@@ -54,14 +64,14 @@ export function PageShell() {
               <NavLink to="/settings/audit-logs" className="nav-link">
                 操作日志
               </NavLink>
-            </>
-          ) : null}
-        </nav>
+            </nav>
+          </div>
+        ) : null}
 
         <div className="sidebar__hint">
           <h2>当前说明</h2>
-          <p>工艺卡按编制、确认、审核、批准的受控流程流转。</p>
-          <p>已批准的工艺卡会自动锁定，只能查看、导出和打印。</p>
+          <p>系统支持编制、确认、审核、批准的受控流程，并能保留完整审批留痕。</p>
+          <p>首页工作台会展示当前待办、统计图表和最近流程动态。</p>
         </div>
       </aside>
 

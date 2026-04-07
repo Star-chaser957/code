@@ -2,6 +2,8 @@ import { randomBytes, randomUUID, scryptSync, timingSafeEqual } from 'node:crypt
 import path from 'node:path';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
+import dayjs from 'dayjs';
+import isoWeek from 'dayjs/plugin/isoWeek.js';
 import { z } from 'zod';
 import { SqliteService } from './sqlite';
 import { createDemoProcessCard, createEmptyOperation, PROCESS_CATALOG } from '../../shared/process-catalog';
@@ -18,6 +20,12 @@ import type {
   CardOperation,
   CardPermissions,
   CardWorkflowStatus,
+  DashboardActivityItem,
+  DashboardDistributionItem,
+  DashboardOverview,
+  DashboardStatSummary,
+  DashboardTaskSummary,
+  DashboardTrendPoint,
   DepartmentOption,
   LoginResponse,
   OperationDefinition,
@@ -43,6 +51,7 @@ import {
 
 const serverRoot = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(serverRoot, '..', '..');
+dayjs.extend(isoWeek);
 
 const recordSchema = z.record(z.string(), z.string());
 
@@ -424,7 +433,7 @@ const summarizeOperations = (operations: CardOperation[]) =>
     .join('; ');
 
 function getAvailableActions(card: CardRow, viewer: AuthUser | null): ApprovalAction[] {
-  if (!viewer || card.status === 'approved') {
+  if (!viewer || card.status === 'approved' || card.status === 'voided') {
     return [];
   }
 
@@ -472,7 +481,7 @@ function getAvailableActions(card: CardRow, viewer: AuthUser | null): ApprovalAc
 }
 
 function getPermissions(card: CardRow, viewer: AuthUser | null): CardPermissions {
-  if (!viewer || card.status === 'approved') {
+  if (!viewer || card.status === 'approved' || card.status === 'voided') {
     return {
       canEdit: false,
       canDelete: false,
@@ -1039,6 +1048,144 @@ export class ProcessCardRepository {
     );
 
     return rows.map(toAuditLog);
+  }
+
+  async getDashboardOverview(viewer: AuthUser): Promise<DashboardOverview> {
+    const cardRows = this.sqlite.query<CardRow>(
+      `
+        SELECT *
+        FROM process_cards
+        ORDER BY created_at DESC
+      `,
+    );
+
+    const now = dayjs();
+    const todayStart = now.startOf('day');
+    const weekStart = now.startOf('isoWeek');
+    const monthStart = now.startOf('month');
+    const yearStart = now.startOf('year');
+
+    const countCreatedSince = (start: dayjs.Dayjs) =>
+      cardRows.filter((row) => dayjs(row.created_at).isAfter(start) || dayjs(row.created_at).isSame(start)).length;
+
+    const tasks: DashboardTaskSummary = {
+      draftCount: hasWorkflowRole(viewer, 'prepare') || isAdmin(viewer)
+        ? cardRows.filter(
+            (row) =>
+              row.created_by_user_id === viewer.id &&
+              (row.status === 'draft' || row.status === 'rejected_to_prepare'),
+          ).length
+        : 0,
+      pendingConfirmCount: hasWorkflowRole(viewer, 'confirm') || isAdmin(viewer)
+        ? cardRows.filter(
+            (row) =>
+              row.current_handler_user_id === viewer.id &&
+              (row.status === 'pending_confirm' || row.status === 'rejected_to_confirm'),
+          ).length
+        : 0,
+      pendingReviewCount: hasWorkflowRole(viewer, 'review') || isAdmin(viewer)
+        ? cardRows.filter(
+            (row) =>
+              row.current_handler_user_id === viewer.id &&
+              (row.status === 'pending_review' || row.status === 'rejected_to_review'),
+          ).length
+        : 0,
+      pendingApproveCount: hasWorkflowRole(viewer, 'approve') || isAdmin(viewer)
+        ? cardRows.filter(
+            (row) => row.current_handler_user_id === viewer.id && row.status === 'pending_approve',
+          ).length
+        : 0,
+      returnedCount: cardRows.filter(
+        (row) =>
+          row.last_return_comment.trim() &&
+          ((row.status === 'rejected_to_prepare' && row.created_by_user_id === viewer.id) ||
+            (row.status === 'rejected_to_confirm' && row.confirmed_user_id === viewer.id) ||
+            (row.status === 'rejected_to_review' && row.reviewed_user_id === viewer.id)),
+      ).length,
+      totalPendingCount: 0,
+    };
+    tasks.totalPendingCount =
+      tasks.draftCount +
+      tasks.pendingConfirmCount +
+      tasks.pendingReviewCount +
+      tasks.pendingApproveCount +
+      tasks.returnedCount;
+
+    const stats: DashboardStatSummary = {
+      todayCreated: countCreatedSince(todayStart),
+      weekCreated: countCreatedSince(weekStart),
+      monthCreated: countCreatedSince(monthStart),
+      yearCreated: countCreatedSince(yearStart),
+      approvedCount: cardRows.filter((row) => row.status === 'approved').length,
+      voidedCount: cardRows.filter((row) => row.status === 'voided').length,
+    };
+
+    const trend: DashboardTrendPoint[] = Array.from({ length: 7 }, (_, index) => {
+      const current = now.startOf('day').subtract(6 - index, 'day');
+      const next = current.add(1, 'day');
+      return {
+        label: current.format('MM-DD'),
+        value: cardRows.filter((row) => {
+          const createdAt = dayjs(row.created_at);
+          return (createdAt.isAfter(current) || createdAt.isSame(current)) && createdAt.isBefore(next);
+        }).length,
+      };
+    });
+
+    const statusDistribution: DashboardDistributionItem[] = [
+      { label: '草稿', value: cardRows.filter((row) => row.status === 'draft').length },
+      {
+        label: '待确认',
+        value: cardRows.filter((row) => row.status === 'pending_confirm' || row.status === 'rejected_to_confirm').length,
+      },
+      {
+        label: '待审核',
+        value: cardRows.filter((row) => row.status === 'pending_review' || row.status === 'rejected_to_review').length,
+      },
+      { label: '待批准', value: cardRows.filter((row) => row.status === 'pending_approve').length },
+      { label: '已批准', value: cardRows.filter((row) => row.status === 'approved').length },
+      { label: '已作废', value: cardRows.filter((row) => row.status === 'voided').length },
+    ];
+
+    const recentActivities: DashboardActivityItem[] = this.sqlite
+      .query<AuditLogRow>(
+        `
+          SELECT *
+          FROM audit_logs
+          WHERE category IN ('process_card', 'approval')
+          ORDER BY created_at DESC
+          LIMIT 8
+        `,
+      )
+      .map((row) => ({
+        id: row.id,
+        category: row.category,
+        title: row.summary,
+        actorDisplayName: row.actor_display_name || '系统',
+        createdAt: row.created_at,
+        statusLabel:
+          row.category === 'approval'
+            ? '审批流转'
+            : row.action === 'create'
+              ? '新建'
+              : row.action === 'update'
+                ? '编辑'
+                : row.action === 'delete'
+                  ? '删除'
+                  : row.action === 'void'
+                    ? '作废'
+                    : row.action === 'force_delete'
+                      ? '强制删除'
+                      : '动态',
+      }));
+
+    return {
+      tasks,
+      stats,
+      trend,
+      statusDistribution: statusDistribution.filter((item) => item.value > 0),
+      recentActivities,
+    };
   }
 
   async getOperationDefinitions(): Promise<OperationDefinition[]> {
@@ -2108,6 +2255,82 @@ export class ProcessCardRepository {
 
     await this.sqlite.persist();
     return this.getProcessCard(cardId, actor);
+  }
+
+  async voidProcessCard(id: string, actor: AuthUser, ipAddress = '') {
+    if (!isAdmin(actor)) {
+      throw new Error('仅管理员可以作废工艺卡。');
+    }
+
+    const [card] = this.sqlite.query<CardRow>('SELECT * FROM process_cards WHERE id = ?', [id]);
+    if (!card) {
+      throw new Error('工艺卡不存在。');
+    }
+
+    if (card.status === 'voided') {
+      return this.getProcessCard(id, actor);
+    }
+
+    const now = new Date().toISOString();
+    this.sqlite.transaction(() => {
+      this.sqlite.run(
+        `
+          UPDATE process_cards
+          SET status = ?, current_handler_user_id = ?, locked_at = ?, updated_at = ?
+          WHERE id = ?
+        `,
+        ['voided', '', now, now, id],
+      );
+      this.writeAuditLog({
+        category: 'process_card',
+        entityType: 'process_card',
+        entityId: id,
+        action: 'void',
+        actor,
+        summary: `作废工艺卡：${card.plan_number || card.product_name || id}`,
+        detailText: '管理员作废了该工艺卡。',
+        changes: [
+          { field: '流程状态', before: card.status, after: 'voided' },
+        ],
+        ipAddress,
+      });
+    });
+
+    await this.sqlite.persist();
+    return this.getProcessCard(id, actor);
+  }
+
+  async forceDeleteProcessCard(id: string, actor: AuthUser, ipAddress = '') {
+    if (!isAdmin(actor)) {
+      throw new Error('仅管理员可以强制删除工艺卡。');
+    }
+
+    const [card] = this.sqlite.query<CardRow>('SELECT * FROM process_cards WHERE id = ?', [id]);
+    if (!card) {
+      return { success: true };
+    }
+
+    this.sqlite.transaction(() => {
+      this.sqlite.run('DELETE FROM process_cards WHERE id = ?', [id]);
+      this.writeAuditLog({
+        category: 'process_card',
+        entityType: 'process_card',
+        entityId: id,
+        action: 'force_delete',
+        actor,
+        summary: `强制删除工艺卡：${card.plan_number || card.product_name || id}`,
+        detailText: '管理员强制删除了该工艺卡。',
+        changes: [
+          { field: '计划单号', before: card.plan_number || '-', after: '-' },
+          { field: '产品名称', before: card.product_name || '-', after: '-' },
+          { field: '流程状态', before: card.status, after: '-' },
+        ],
+        ipAddress,
+      });
+    });
+
+    await this.sqlite.persist();
+    return { success: true };
   }
 
   async deleteProcessCard(id: string, actor: AuthUser, ipAddress = '') {
