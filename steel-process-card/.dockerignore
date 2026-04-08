@@ -1,0 +1,15 @@
+node_modules
+dist
+.git
+.gitignore
+.env
+.env.local
+.env.production.local
+server/data/*.sqlite
+_backend_out.txt
+_backend_err.txt
+_frontend_out.txt
+_frontend_err.txt
+_server_out.txt
+_server_err.txt
+backups

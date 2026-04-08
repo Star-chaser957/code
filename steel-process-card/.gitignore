@@ -33,3 +33,4 @@ _backend_err.txt
 .env.production.local
 backups/
 server/data/*.sqlite
+*.local.json

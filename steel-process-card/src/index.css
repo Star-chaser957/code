@@ -76,6 +76,37 @@ a {
   width: 180px;
 }
 
+.sidebar__brand > div,
+.page__header > div:first-child,
+.print-toolbar > div:first-child,
+.dashboard-hero > div:first-child,
+.login-brand__copy {
+  display: grid;
+}
+
+.sidebar__brand > div > h1,
+.page__header > div:first-child > h2,
+.print-toolbar > div:first-child > h2,
+.dashboard-hero > div:first-child > h2,
+.login-brand__copy > h1 {
+  order: 1;
+}
+
+.sidebar__brand > div > .sidebar__eyebrow,
+.page__header > div:first-child > .page__eyebrow,
+.print-toolbar > div:first-child > .page__eyebrow,
+.dashboard-hero > div:first-child > .page__eyebrow,
+.login-brand__copy > .page__eyebrow {
+  order: 2;
+}
+
+.sidebar__brand > div > p:last-child,
+.page__header > div:first-child > p:last-child,
+.print-toolbar > div:first-child > p:last-child,
+.dashboard-hero > div:first-child > p:last-child {
+  order: 3;
+}
+
 .sidebar__brand h1,
 .page__header h2,
 .panel__header h3,
@@ -83,6 +114,17 @@ a {
   margin: 0;
   font-family: Bahnschrift, "Microsoft YaHei", sans-serif;
   letter-spacing: 0.02em;
+}
+
+.sidebar__brand h1 {
+  font-size: 22px;
+  line-height: 1.1;
+  white-space: nowrap;
+}
+
+.sidebar__brand .sidebar__eyebrow {
+  white-space: nowrap;
+  letter-spacing: 0.12em;
 }
 
 .sidebar__eyebrow,
@@ -765,6 +807,19 @@ a {
   color: var(--muted);
 }
 
+.dashboard-hero__badge {
+  display: inline-flex;
+  align-items: center;
+  margin: 2px 0 10px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(54, 88, 71, 0.08);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
 .dashboard-hero__actions {
   display: flex;
   flex-wrap: wrap;
@@ -853,12 +908,14 @@ a {
 }
 
 .dashboard-activity-list,
+.dashboard-focus-list,
 .dashboard-shortcuts {
   display: grid;
   gap: 12px;
 }
 
 .dashboard-activity-item,
+.dashboard-focus-item,
 .dashboard-shortcut {
   display: flex;
   justify-content: space-between;
@@ -871,22 +928,44 @@ a {
 }
 
 .dashboard-activity-item strong,
+.dashboard-focus-item strong,
 .dashboard-shortcut strong {
   display: block;
 }
 
 .dashboard-activity-item p,
+.dashboard-focus-item p,
 .dashboard-shortcut span {
   margin: 6px 0 0;
   color: var(--muted);
 }
 
-.dashboard-activity-item__meta {
+.dashboard-activity-item__meta,
+.dashboard-focus-item__meta {
   display: grid;
   gap: 6px;
   text-align: right;
   color: var(--muted);
   font-size: 13px;
+}
+
+.dashboard-focus-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(150px, auto) auto;
+  align-items: center;
+}
+
+.dashboard-focus-item__content {
+  min-width: 0;
+}
+
+.dashboard-focus-item__meta {
+  min-width: 150px;
+}
+
+.dashboard-focus-item__actions {
+  display: flex;
+  justify-content: flex-end;
 }
 
 .dashboard-shortcut {
@@ -991,8 +1070,8 @@ a {
 }
 
 .login-card {
-  width: min(560px, 100%);
-  padding: 28px;
+  width: min(520px, 100%);
+  padding: 34px 32px;
   border-radius: 28px;
   background: rgba(252, 251, 246, 0.94);
   border: 1px solid rgba(24, 33, 29, 0.08);
@@ -1001,12 +1080,24 @@ a {
 
 .login-brand {
   display: grid;
-  gap: 18px;
-  margin-bottom: 24px;
+  justify-items: center;
+  gap: 16px;
+  margin-bottom: 28px;
+  text-align: center;
 }
 
 .login-brand img {
   width: 180px;
+}
+
+.login-brand__copy {
+  display: grid;
+  gap: 8px;
+  justify-items: center;
+}
+
+.login-brand .page__eyebrow {
+  margin-bottom: 0;
 }
 
 .login-brand h1 {
@@ -1014,31 +1105,22 @@ a {
   font-family: Bahnschrift, "Microsoft YaHei", sans-serif;
 }
 
-.login-brand p:last-child,
-.login-hint p {
-  margin: 6px 0 0;
+.login-brand p:last-child {
+  max-width: 420px;
+  margin: 0;
   color: var(--muted);
 }
 
 .login-form {
   display: grid;
   gap: 14px;
+  width: min(360px, 100%);
+  margin: 0 auto;
 }
 
 .login-submit {
   width: 100%;
   margin-top: 6px;
-}
-
-.login-hint {
-  margin-top: 18px;
-  padding-top: 18px;
-  border-top: 1px dashed rgba(24, 33, 29, 0.12);
-}
-
-.login-hint strong {
-  display: block;
-  margin-bottom: 6px;
 }
 
 .print-page {
@@ -1282,6 +1364,17 @@ a {
   .dashboard-grid--tasks,
   .dashboard-grid--stats {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .dashboard-focus-item {
+    grid-template-columns: 1fr;
+  }
+
+  .dashboard-focus-item__meta,
+  .dashboard-focus-item__actions {
+    min-width: 0;
+    text-align: left;
+    justify-content: flex-start;
   }
 
   .form-grid--editor,

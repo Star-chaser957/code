@@ -12,10 +12,10 @@ export function PageShell() {
     <div className="app-shell">
       <aside className="sidebar">
         <div className="sidebar__brand">
-          <img src="/logo.png" alt="Steel Process Card" />
+          <img src="/logo.png" alt="Process Card Management" />
           <div>
-            <p className="sidebar__eyebrow">Process Card Admin</p>
-            <h1>生产工艺卡系统</h1>
+            <h1>生产工艺卡管理系统</h1>
+            <p className="sidebar__eyebrow">Process Card Management</p>
             <p>录入、查询、审批、统计和打印统一在一个内部工作台完成。</p>
           </div>
         </div>

@@ -38,11 +38,10 @@ export function LoginPage() {
     <div className="login-shell">
       <div className="login-card">
         <div className="login-brand">
-          <img src="/logo.png" alt="Steel Process Card" />
-          <div>
-            <p className="page__eyebrow">Steel Process Card</p>
+          <img src="/logo.png" alt="Production Process Card" />
+          <div className="login-brand__copy">
+            <p className="page__eyebrow">Production Process Card</p>
             <h1>生产工艺卡系统</h1>
-            <p>登录后即可按编制、确认、审核、批准流程处理工艺卡，管理员可维护系统字典。</p>
           </div>
         </div>
 
@@ -68,15 +67,6 @@ export function LoginPage() {
             {submitting ? '登录中...' : '登录系统'}
           </button>
         </form>
-
-        <div className="login-hint">
-          <strong>默认账号</strong>
-          <p>管理员：admin / admin123</p>
-          <p>编制：operator / operator123</p>
-          <p>确认：confirmer / confirm123</p>
-          <p>审核：reviewer / review123</p>
-          <p>批准：approver / approve123</p>
-        </div>
       </div>
     </div>
   );
