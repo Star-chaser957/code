@@ -69,6 +69,18 @@ export const adminRoutes: FastifyPluginAsync = async (fastify) => {
     };
   });
 
+  fastify.delete('/users/:id', async (request, reply) => {
+    const user = await requireAdmin(request, reply);
+    if (!user) {
+      return;
+    }
+
+    const { id } = request.params as { id: string };
+    return {
+      items: await repository.deleteUserAccount(id, user, request.ip),
+    };
+  });
+
   fastify.get('/audit-logs', async (request, reply) => {
     const user = await requireAdmin(request, reply);
     if (!user) {

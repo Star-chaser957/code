@@ -12,6 +12,7 @@ import type {
   ProcessCardListItem,
   ProcessCardPayload,
   ProductPrefillCandidate,
+  NotificationOverview,
   UserAccount,
   UserAccountCreateRequest,
   UserAccountUpdateRequest,
@@ -41,7 +42,19 @@ async function request<T>(input: string, init?: RequestInit): Promise<T> {
   });
 
   if (!response.ok) {
-    const message = await response.text();
+    const responseText = await response.text();
+    let message = responseText;
+
+    if (responseText) {
+      try {
+        const parsed = JSON.parse(responseText) as { message?: string };
+        if (parsed?.message) {
+          message = parsed.message;
+        }
+      } catch {
+        // Ignore JSON parse errors and keep the raw response text.
+      }
+    }
 
     if (response.status === 401 && typeof window !== 'undefined') {
       clearAuthToken();
@@ -64,6 +77,9 @@ export const api = {
   getCurrentUser: async () => request<{ user: LoginResponse['user'] }>('/api/auth/me'),
 
   getDashboardOverview: async () => request<DashboardOverview>('/api/dashboard/overview'),
+
+  getNotificationOverview: async () =>
+    request<NotificationOverview>('/api/dashboard/notifications'),
 
   logout: async () =>
     request<{ success: boolean }>('/api/auth/logout', {
@@ -102,6 +118,11 @@ export const api = {
     request<{ items: UserAccount[] }>(`/api/admin/users/${id}/active`, {
       method: 'PATCH',
       body: JSON.stringify(payload),
+    }),
+
+  deleteUserAccount: async (id: string) =>
+    request<{ items: UserAccount[] }>(`/api/admin/users/${id}`, {
+      method: 'DELETE',
     }),
 
   listAuditLogs: async (filters: AuditLogFilters) => {

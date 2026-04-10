@@ -210,10 +210,36 @@ a {
   transition: all 0.18s ease;
 }
 
+.nav-link--with-badge {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.nav-link__badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: rgba(193, 69, 69, 0.14);
+  color: var(--danger);
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .nav-link.active {
   color: white;
   background: linear-gradient(135deg, #365847 0%, #4d715c 100%);
   box-shadow: 0 16px 28px rgba(54, 88, 71, 0.18);
+}
+
+.nav-link.active .nav-link__badge {
+  background: rgba(255, 255, 255, 0.18);
+  color: white;
 }
 
 .sidebar__hint {
@@ -621,7 +647,8 @@ a {
 
 .admin-user-create,
 .admin-user-list,
-.audit-log-list {
+.audit-log-list,
+.notification-list {
   display: grid;
   gap: 16px;
 }
@@ -641,16 +668,38 @@ a {
 }
 
 .admin-user-card,
-.audit-log-card {
+.audit-log-card,
+.notification-card {
   padding: 16px;
   border-radius: 18px;
   background: rgba(255, 255, 255, 0.64);
   border: 1px solid rgba(24, 33, 29, 0.08);
 }
 
+.notification-card--todo {
+  border-color: rgba(47, 107, 79, 0.18);
+  background: rgba(47, 107, 79, 0.06);
+}
+
+.notification-card--warning {
+  border-color: rgba(214, 122, 51, 0.22);
+  background: rgba(214, 122, 51, 0.08);
+}
+
+.notification-card--success {
+  border-color: rgba(46, 79, 122, 0.18);
+  background: rgba(46, 79, 122, 0.06);
+}
+
+.notification-card--info {
+  border-color: rgba(92, 110, 128, 0.18);
+  background: rgba(92, 110, 128, 0.06);
+}
+
 .admin-user-card__header,
 .admin-user-card__footer,
-.audit-log-card__header {
+.audit-log-card__header,
+.notification-card__header {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
@@ -659,9 +708,31 @@ a {
 
 .admin-user-card__header p,
 .audit-log-card__header p,
-.audit-log-card__detail {
+.audit-log-card__detail,
+.notification-card p {
   margin: 6px 0 0;
   color: var(--muted);
+}
+
+.notification-card__badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 48px;
+  height: 24px;
+  margin-right: 10px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: rgba(54, 88, 71, 0.08);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.notification-card__actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 12px;
 }
 
 .admin-password-field {

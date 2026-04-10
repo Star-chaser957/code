@@ -52,6 +52,76 @@ function clonePrefillOperations(
   });
 }
 
+function getDefaultWorkflowAssignee(
+  users: UserSummary[],
+  role: 'confirm' | 'review' | 'approve',
+  currentUserId?: string,
+) {
+  const nonAdminOthers = users.filter(
+    (item) => item.isActive && item.role !== 'admin' && item.workflowRoles.includes(role) && item.id !== currentUserId,
+  );
+  if (nonAdminOthers[0]) {
+    return nonAdminOthers[0].id;
+  }
+
+  const nonAdmin = users.filter(
+    (item) => item.isActive && item.role !== 'admin' && item.workflowRoles.includes(role),
+  );
+  if (nonAdmin[0]) {
+    return nonAdmin[0].id;
+  }
+
+  const fallback = users.find((item) => item.isActive && item.workflowRoles.includes(role) && item.id !== currentUserId);
+  return fallback?.id ?? '';
+}
+
+function validateCardBeforeSave(card: ProcessCardPayload) {
+  for (const field of MAIN_INFO_FIELDS) {
+    const value = String(card[field.key] ?? '').trim();
+    if (!value) {
+      return `${field.label}不能为空。`;
+    }
+  }
+
+  if (!card.confirmedUserId.trim()) {
+    return '请选择确认人后再保存。';
+  }
+
+  if (!card.reviewedUserId.trim()) {
+    return '请选择审核人后再保存。';
+  }
+
+  if (!card.approvedUserId.trim()) {
+    return '请选择批准人后再保存。';
+  }
+
+  return '';
+}
+
+function validateCardForSubmit(card: ProcessCardPayload) {
+  if (!card.planNumber.trim()) {
+    return '计划单号不能为空。';
+  }
+
+  if (!card.productName.trim()) {
+    return '产品名称不能为空。';
+  }
+
+  if (!card.confirmedUserId.trim()) {
+    return '请选择确认人后再保存。';
+  }
+
+  if (!card.reviewedUserId.trim()) {
+    return '请选择审核人后再保存。';
+  }
+
+  if (!card.approvedUserId.trim()) {
+    return '请选择批准人后再保存。';
+  }
+
+  return '';
+}
+
 export function EditorPage() {
   const navigate = useNavigate();
   const { id } = useParams();
@@ -71,6 +141,12 @@ export function EditorPage() {
   const [prefillCandidates, setPrefillCandidates] = useState<ProductPrefillCandidate[]>([]);
   const [selectedPrefillId, setSelectedPrefillId] = useState('');
   const [operationPickerExpanded, setOperationPickerExpanded] = useState(!isEditMode);
+
+  const showErrorDialog = (messageText: string) => {
+    setError(messageText);
+    setMessage('');
+    window.alert(messageText);
+  };
 
   useEffect(() => {
     const load = async () => {
@@ -92,6 +168,9 @@ export function EditorPage() {
           const emptyCard = createEmptyProcessCard(definitionResponse.items);
           emptyCard.createdByUserId = user?.id ?? '';
           emptyCard.createdByName = user?.displayName ?? user?.username ?? '';
+          emptyCard.confirmedUserId = getDefaultWorkflowAssignee(userResponse.items, 'confirm', user?.id);
+          emptyCard.reviewedUserId = getDefaultWorkflowAssignee(userResponse.items, 'review', user?.id);
+          emptyCard.approvedUserId = getDefaultWorkflowAssignee(userResponse.items, 'approve', user?.id);
           setCard(emptyCard);
         }
 
@@ -161,11 +240,18 @@ export function EditorPage() {
   }, [card?.permissions.availableActions, hasWorkflowRole, isEditMode]);
 
   const selectableUsers = useMemo(
-    () => ({
-      confirm: users.filter((item) => item.role === 'admin' || item.workflowRoles.includes('confirm')),
-      review: users.filter((item) => item.role === 'admin' || item.workflowRoles.includes('review')),
-      approve: users.filter((item) => item.role === 'admin' || item.workflowRoles.includes('approve')),
-    }),
+    () => {
+      const sortCandidates = (role: 'confirm' | 'review' | 'approve') =>
+        users
+          .filter((item) => item.isActive && (item.role === 'admin' || item.workflowRoles.includes(role)))
+          .sort((left, right) => Number(left.role === 'admin') - Number(right.role === 'admin'));
+
+      return {
+        confirm: sortCandidates('confirm'),
+        review: sortCandidates('review'),
+        approve: sortCandidates('approve'),
+      };
+    },
     [users],
   );
 
@@ -269,6 +355,13 @@ export function EditorPage() {
       return;
     }
 
+    const validationError = validateCardBeforeSave(card);
+    if (validationError) {
+      setError(validationError);
+      setMessage('');
+      return;
+    }
+
     setSaving(true);
     try {
       await persistCard(card);
@@ -283,6 +376,13 @@ export function EditorPage() {
 
   const handleWorkflowAction = async (action: ApprovalAction) => {
     if (!card) {
+      return;
+    }
+
+    const validationError = validateCardBeforeSave(card);
+    if (validationError) {
+      setError(validationError);
+      setMessage('');
       return;
     }
 
@@ -311,6 +411,69 @@ export function EditorPage() {
       setSaving(false);
     }
   };
+
+  const handleSaveWithPrompt = async () => {
+    if (!card) {
+      return;
+    }
+
+    const validationError = validateCardForSubmit(card);
+    if (validationError) {
+      showErrorDialog(validationError);
+      return;
+    }
+
+    setSaving(true);
+    try {
+      await persistCard(card);
+      setMessage('工艺卡已保存。');
+      setError('');
+    } catch (reason) {
+      showErrorDialog(reason instanceof Error ? reason.message : '保存失败，请稍后再试。');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleWorkflowActionWithPrompt = async (action: ApprovalAction) => {
+    if (!card) {
+      return;
+    }
+
+    const validationError = validateCardForSubmit(card);
+    if (validationError) {
+      showErrorDialog(validationError);
+      return;
+    }
+
+    setSaving(true);
+    try {
+      let latest = card;
+      if (!latest.id || latest.permissions.canEdit) {
+        latest = await persistCard(latest);
+      }
+
+      if (APPROVAL_ACTION_COMMENT_REQUIRED.includes(action) && !approvalComment.trim()) {
+        throw new Error('当前动作需要填写修改意见。');
+      }
+
+      const updated = await api.performApprovalAction(latest.id!, {
+        action,
+        comment: approvalComment.trim(),
+      });
+      setCard(updated);
+      setApprovalComment('');
+      setMessage(`流程动作“${APPROVAL_ACTION_LABELS[action]}”已完成。`);
+      setError('');
+    } catch (reason) {
+      showErrorDialog(reason instanceof Error ? reason.message : '流程提交失败，请稍后再试。');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  void handleSave;
+  void handleWorkflowAction;
 
   if (loading || !card) {
     return (
@@ -733,7 +896,7 @@ export function EditorPage() {
                     <button
                       type="button"
                       className="button button--primary"
-                      onClick={() => void handleSave()}
+                      onClick={() => void handleSaveWithPrompt()}
                       disabled={saving}
                     >
                       {saving ? '处理中...' : '保存工艺卡'}
@@ -745,7 +908,7 @@ export function EditorPage() {
                       type="button"
                       className="button"
                       disabled={saving}
-                      onClick={() => void handleWorkflowAction(action)}
+                      onClick={() => void handleWorkflowActionWithPrompt(action)}
                     >
                       {APPROVAL_ACTION_LABELS[action]}
                     </button>

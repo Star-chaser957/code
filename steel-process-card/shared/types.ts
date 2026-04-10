@@ -301,12 +301,32 @@ export type DashboardActivityItem = {
   statusLabel: string;
 };
 
+export type NotificationLevel = 'todo' | 'warning' | 'info' | 'success';
+
+export type NotificationItem = {
+  id: string;
+  title: string;
+  description: string;
+  createdAt: string;
+  level: NotificationLevel;
+  actionLabel: string;
+  to: string;
+};
+
+export type NotificationOverview = {
+  totalCount: number;
+  todoCount: number;
+  items: NotificationItem[];
+};
+
 export type DashboardOverview = {
   tasks: DashboardTaskSummary;
   stats: DashboardStatSummary;
   trend: DashboardTrendPoint[];
   statusDistribution: DashboardDistributionItem[];
   recentActivities: DashboardActivityItem[];
+  notifications: NotificationItem[];
+  notificationCount: number;
 };
 
 export type LoginRequest = {

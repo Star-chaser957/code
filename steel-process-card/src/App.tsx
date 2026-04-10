@@ -5,6 +5,7 @@ import { DashboardPage } from './pages/DashboardPage';
 import { EditorPage } from './pages/EditorPage';
 import { ListPage } from './pages/ListPage';
 import { LoginPage } from './pages/LoginPage';
+import { MessagesPage } from './pages/MessagesPage';
 import { PrintPage } from './pages/PrintPage';
 import { AuditLogPage } from './pages/AuditLogPage';
 import { SettingsDepartmentsPage } from './pages/SettingsDepartmentsPage';
@@ -29,6 +30,7 @@ export default function App() {
         }
       >
         <Route path="/" element={<DashboardPage />} />
+        <Route path="/messages" element={<MessagesPage />} />
         <Route path="/cards" element={<ListPage />} />
         <Route path="/cards/new" element={<EditorPage />} />
         <Route path="/cards/:id/edit" element={<EditorPage />} />

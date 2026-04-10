@@ -609,6 +609,43 @@ export function DashboardPage() {
       <section className="dashboard-section">
         <article className="panel">
           <div className="panel__header">
+            <h3>站内消息</h3>
+            <span>{`当前待办提醒 ${overview.notificationCount} 条`}</span>
+          </div>
+          <div className="notification-list">
+            {overview.notifications.slice(0, 6).map((item) => (
+              <article key={item.id} className={`notification-card notification-card--${item.level}`}>
+                <div className="notification-card__header">
+                  <div>
+                    <strong>{item.title}</strong>
+                    <p>{item.description}</p>
+                  </div>
+                  <span>{new Date(item.createdAt).toLocaleString('zh-CN')}</span>
+                </div>
+                <div className="notification-card__actions">
+                  <Link to={item.to} className="button button--ghost button--small">
+                    {item.actionLabel}
+                  </Link>
+                </div>
+              </article>
+            ))}
+            {overview.notifications.length === 0 ? (
+              <div className="state">当前没有新的待办提醒和站内消息。</div>
+            ) : null}
+          </div>
+          {overview.notifications.length > 0 ? (
+            <div className="toolbar">
+              <Link to="/messages" className="button button--ghost button--small">
+                查看全部消息
+              </Link>
+            </div>
+          ) : null}
+        </article>
+      </section>
+
+      <section className="dashboard-section">
+        <article className="panel">
+          <div className="panel__header">
             <h3>最近流程动态</h3>
             <span>基于工艺卡和审批日志</span>
           </div>

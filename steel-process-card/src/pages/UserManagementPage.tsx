@@ -43,12 +43,17 @@ export function UserManagementPage() {
         setItems(response.items);
         setError('');
       })
-      .catch((reason) => setError(reason instanceof Error ? reason.message : '加载账号列表失败'))
+      .catch((reason) => setError(reason instanceof Error ? reason.message : '加载账号列表失败。'))
       .finally(() => setLoading(false));
   }, []);
 
   const sortedItems = useMemo(
-    () => [...items].sort((left, right) => Number(right.role === 'admin') - Number(left.role === 'admin') || left.username.localeCompare(right.username)),
+    () =>
+      [...items].sort(
+        (left, right) =>
+          Number(right.role === 'admin') - Number(left.role === 'admin') ||
+          left.username.localeCompare(right.username),
+      ),
     [items],
   );
 
@@ -69,7 +74,7 @@ export function UserManagementPage() {
       setMessage('新账号已创建。');
       setError('');
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : '新增账号失败');
+      setError(reason instanceof Error ? reason.message : '新增账号失败。');
     } finally {
       setSaving(false);
     }
@@ -89,10 +94,10 @@ export function UserManagementPage() {
       };
       const response = await api.updateUserAccount(item.id, payload);
       setItems(response.items);
-      setMessage(`账号 ${item.displayName} 已保存。`);
+      setMessage(`账号“${item.displayName}”已保存。`);
       setError('');
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : '保存账号失败');
+      setError(reason instanceof Error ? reason.message : '保存账号失败。');
     } finally {
       setSaving(false);
     }
@@ -109,10 +114,10 @@ export function UserManagementPage() {
     try {
       await api.resetUserPassword(item.id, { password });
       setPasswordDrafts((current) => ({ ...current, [item.id]: '' }));
-      setMessage(`已重置 ${item.displayName} 的密码。`);
+      setMessage(`已重置“${item.displayName}”的密码。`);
       setError('');
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : '重置密码失败');
+      setError(reason instanceof Error ? reason.message : '重置密码失败。');
     } finally {
       setSaving(false);
     }
@@ -123,10 +128,35 @@ export function UserManagementPage() {
     try {
       const response = await api.setUserActive(item.id, { isActive: !item.isActive });
       setItems(response.items);
-      setMessage(`${item.displayName} 已${item.isActive ? '停用' : '启用'}。`);
+      setMessage(`账号“${item.displayName}”已${item.isActive ? '停用' : '启用'}。`);
       setError('');
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : '更新账号状态失败');
+      setError(reason instanceof Error ? reason.message : '更新账号状态失败。');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeleteUser = async (item: UserAccount) => {
+    if (!isAdmin) {
+      return;
+    }
+
+    const confirmed = window.confirm(`确认删除账号“${item.displayName}”吗？删除后无法恢复。`);
+    if (!confirmed) {
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const response = await api.deleteUserAccount(item.id);
+      setItems(response.items);
+      setMessage(`账号“${item.displayName}”已删除。`);
+      setError('');
+    } catch (reason) {
+      const messageText = reason instanceof Error ? reason.message : '删除账号失败。';
+      setError(messageText);
+      window.alert(messageText);
     } finally {
       setSaving(false);
     }
@@ -138,7 +168,7 @@ export function UserManagementPage() {
         <div>
           <p className="page__eyebrow">Admin Console</p>
           <h2>账号管理</h2>
-          <p>管理员可新增账号、分配流程角色、重置密码，并控制账号启用状态。</p>
+          <p>管理员可新增账号、分配流程角色、重置密码，并控制账号启用、停用和删除。</p>
         </div>
       </header>
 
@@ -226,7 +256,12 @@ export function UserManagementPage() {
           </label>
 
           <div className="toolbar">
-            <button type="button" className="button button--primary" disabled={saving || !isAdmin} onClick={() => void handleCreate()}>
+            <button
+              type="button"
+              className="button button--primary"
+              disabled={saving || !isAdmin}
+              onClick={() => void handleCreate()}
+            >
               {saving ? '处理中...' : '新增账号'}
             </button>
           </div>
@@ -331,7 +366,12 @@ export function UserManagementPage() {
                     />
                   </label>
                   <div className="toolbar">
-                    <button type="button" className="button" disabled={saving || !isAdmin} onClick={() => void handleSaveRow(item)}>
+                    <button
+                      type="button"
+                      className="button"
+                      disabled={saving || !isAdmin}
+                      onClick={() => void handleSaveRow(item)}
+                    >
                       保存账号
                     </button>
                     <button
@@ -349,6 +389,14 @@ export function UserManagementPage() {
                       onClick={() => void handleToggleActive(item)}
                     >
                       {item.isActive ? '停用账号' : '启用账号'}
+                    </button>
+                    <button
+                      type="button"
+                      className="button button--ghost"
+                      disabled={saving || !isAdmin || item.id === user?.id || item.username === 'admin'}
+                      onClick={() => void handleDeleteUser(item)}
+                    >
+                      删除账号
                     </button>
                   </div>
                 </div>

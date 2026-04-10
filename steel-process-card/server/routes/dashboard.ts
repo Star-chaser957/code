@@ -11,4 +11,13 @@ export const dashboardRoutes: FastifyPluginAsync = async (fastify) => {
 
     return repository.getDashboardOverview(user);
   });
+
+  fastify.get('/notifications', async (request, reply) => {
+    const user = await requireAuth(request, reply);
+    if (!user) {
+      return;
+    }
+
+    return repository.getNotificationOverview(user);
+  });
 };

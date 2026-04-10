@@ -28,6 +28,8 @@ import type {
   DashboardTrendPoint,
   DepartmentOption,
   LoginResponse,
+  NotificationItem,
+  NotificationOverview,
   OperationDefinition,
   OperationDetail,
   ProcessCardListFilters,
@@ -47,6 +49,7 @@ import {
   APPROVAL_ACTION_COMMENT_REQUIRED,
   DEFAULT_DEPARTMENT_OPTIONS,
   FIXED_REMARK,
+  MAIN_INFO_FIELDS,
 } from '../../shared/types';
 
 dayjs.extend(isoWeek);
@@ -155,6 +158,12 @@ const approvalActionSchema = z.object({
   ]),
   comment: z.string().optional(),
 });
+
+const mainInfoFieldLabels = new Map(
+  MAIN_INFO_FIELDS.map((field) => [field.key, field.label] as const),
+);
+
+const REQUIRED_MAIN_INFO_KEYS = ['planNumber', 'productName'] as const;
 
 type CardRow = {
   id: string;
@@ -731,6 +740,49 @@ export class ProcessCardRepository {
     `);
   }
 
+  private validateProcessCardRequiredFields(payload: {
+    planNumber: string;
+    productName: string;
+    confirmedUserId: string;
+    reviewedUserId: string;
+    approvedUserId: string;
+  }) {
+    for (const fieldKey of REQUIRED_MAIN_INFO_KEYS) {
+      const rawValue = payload[fieldKey];
+      const value = typeof rawValue === 'string' ? rawValue.trim() : '';
+      if (!value) {
+        throw new Error(`${mainInfoFieldLabels.get(fieldKey) ?? '主信息字段'}不能为空。`);
+      }
+    }
+
+    if (!payload.confirmedUserId.trim()) {
+      throw new Error('请选择确认人后再保存。');
+    }
+
+    if (!payload.reviewedUserId.trim()) {
+      throw new Error('请选择审核人后再保存。');
+    }
+
+    if (!payload.approvedUserId.trim()) {
+      throw new Error('请选择批准人后再保存。');
+    }
+  }
+
+  private assertWorkflowAssigneeExists(userId: string, label: string) {
+    const [user] = this.sqlite.query<{ id: string; is_active: number }>(
+      'SELECT id, is_active FROM users WHERE id = ?',
+      [userId],
+    );
+
+    if (!user) {
+      throw new Error(`${label}不存在，请重新选择。`);
+    }
+
+    if (!user.is_active) {
+      throw new Error(`${label}已停用，请重新选择。`);
+    }
+  }
+
   private seedDefinitions() {
     this.sqlite.transaction(() => {
       for (const definition of PROCESS_CATALOG) {
@@ -1019,6 +1071,221 @@ export class ProcessCardRepository {
     );
   }
 
+  private getCardDisplayTitle(card: CardRow) {
+    return card.plan_number || card.product_name || card.id;
+  }
+
+  private getCardTargetPath(card: CardRow, viewer: AuthUser) {
+    return getPermissions(card, viewer).canEdit ? `/cards/${card.id}/edit` : `/cards/${card.id}/print`;
+  }
+
+  private collectRelatedCardIds(cardRows: CardRow[], viewer: AuthUser) {
+    const relatedCardIds = new Set<string>();
+
+    if (isAdmin(viewer)) {
+      cardRows.forEach((row) => relatedCardIds.add(row.id));
+      return relatedCardIds;
+    }
+
+    cardRows.forEach((row) => {
+      if (row.created_by_user_id === viewer.id) {
+        relatedCardIds.add(row.id);
+      }
+      if (hasWorkflowRole(viewer, 'confirm') && row.confirmed_user_id === viewer.id) {
+        relatedCardIds.add(row.id);
+      }
+      if (hasWorkflowRole(viewer, 'review') && row.reviewed_user_id === viewer.id) {
+        relatedCardIds.add(row.id);
+      }
+      if (hasWorkflowRole(viewer, 'approve') && row.approved_user_id === viewer.id) {
+        relatedCardIds.add(row.id);
+      }
+    });
+
+    return relatedCardIds;
+  }
+
+  private buildNotificationItems(cardRows: CardRow[], viewer: AuthUser): NotificationItem[] {
+    const items: NotificationItem[] = [];
+    const pushCardNotice = (
+      card: CardRow,
+      level: NotificationItem['level'],
+      title: string,
+      description: string,
+      actionLabel: string,
+      to?: string,
+    ) => {
+      items.push({
+        id: `card-${card.id}-${title}`,
+        title,
+        description,
+        createdAt: card.updated_at,
+        level,
+        actionLabel,
+        to: to ?? this.getCardTargetPath(card, viewer),
+      });
+    };
+
+    if (isAdmin(viewer)) {
+      const pendingTotal = cardRows.filter(
+        (card) =>
+          card.status !== 'approved' &&
+          card.status !== 'voided',
+      ).length;
+
+      if (pendingTotal > 0) {
+        items.push({
+          id: 'admin-global-pending',
+          title: `当前共有 ${pendingTotal} 张流程中工艺卡`,
+          description: '可进入工作台或工艺卡列表统筹查看待确认、待审核和待批准单据。',
+          createdAt: new Date().toISOString(),
+          level: 'todo',
+          actionLabel: '查看列表',
+          to: '/cards',
+        });
+      }
+    }
+
+    for (const card of cardRows) {
+      const cardTitle = this.getCardDisplayTitle(card);
+
+      if (
+        hasWorkflowRole(viewer, 'prepare') &&
+        card.created_by_user_id === viewer.id &&
+        card.status === 'draft'
+      ) {
+        pushCardNotice(card, 'todo', `${cardTitle} 仍是草稿`, '请尽快补全信息并提交确认。', '继续编制');
+      }
+
+      if (
+        hasWorkflowRole(viewer, 'prepare') &&
+        card.created_by_user_id === viewer.id &&
+        card.status === 'rejected_to_prepare'
+      ) {
+        pushCardNotice(
+          card,
+          'warning',
+          `${cardTitle} 已退回编制`,
+          card.last_return_comment.trim() || '请根据退回意见修改后重新提交。',
+          '立即修改',
+        );
+      }
+
+      if (
+        hasWorkflowRole(viewer, 'confirm') &&
+        card.current_handler_user_id === viewer.id &&
+        (card.status === 'pending_confirm' || card.status === 'rejected_to_confirm')
+      ) {
+        pushCardNotice(
+          card,
+          card.status === 'rejected_to_confirm' ? 'warning' : 'todo',
+          `${cardTitle} 待你确认`,
+          card.status === 'rejected_to_confirm'
+            ? card.last_return_comment.trim() || '该工艺卡已回到确认环节，请重新处理。'
+            : '请核对内容后提交审核或退回编制。',
+          '进入确认',
+        );
+      }
+
+      if (
+        hasWorkflowRole(viewer, 'review') &&
+        card.current_handler_user_id === viewer.id &&
+        (card.status === 'pending_review' || card.status === 'rejected_to_review')
+      ) {
+        pushCardNotice(
+          card,
+          card.status === 'rejected_to_review' ? 'warning' : 'todo',
+          `${cardTitle} 待你审核`,
+          card.status === 'rejected_to_review'
+            ? card.last_return_comment.trim() || '该工艺卡已退回审核环节，请重新审阅。'
+            : '建议先查看打印版式，再决定通过或驳回。',
+          '进入审阅',
+          `/cards/${card.id}/print`,
+        );
+      }
+
+      if (
+        hasWorkflowRole(viewer, 'approve') &&
+        card.current_handler_user_id === viewer.id &&
+        card.status === 'pending_approve'
+      ) {
+        pushCardNotice(
+          card,
+          'todo',
+          `${cardTitle} 待你批准`,
+          '批准通过后工艺卡将锁定，请确认无误后再提交。',
+          '进入批准',
+          `/cards/${card.id}/print`,
+        );
+      }
+    }
+
+    const relatedCardIds = this.collectRelatedCardIds(cardRows, viewer);
+    if (relatedCardIds.size > 0) {
+      const placeholders = Array.from({ length: relatedCardIds.size }, () => '?').join(', ');
+      const recentLogs = isAdmin(viewer)
+        ? this.sqlite.query<AuditLogRow>(
+            `
+              SELECT *
+              FROM audit_logs
+              WHERE category IN ('process_card', 'approval')
+                AND entity_type = 'process_card'
+                AND entity_id IN (${placeholders})
+              ORDER BY created_at DESC
+              LIMIT 10
+            `,
+            [...relatedCardIds],
+          )
+        : this.sqlite.query<AuditLogRow>(
+            `
+              SELECT *
+              FROM audit_logs
+              WHERE category IN ('process_card', 'approval')
+                AND entity_type = 'process_card'
+                AND entity_id IN (${placeholders})
+                AND (target_user_id = ? OR actor_user_id = ?)
+              ORDER BY created_at DESC
+              LIMIT 10
+            `,
+            [...relatedCardIds, viewer.id, viewer.id],
+          );
+
+      for (const row of recentLogs) {
+        items.push({
+          id: `log-${row.id}`,
+          title: row.summary,
+          description: row.detail_text || `${row.actor_display_name || '系统'} 发起了流程变更。`,
+          createdAt: row.created_at,
+          level: row.category === 'approval' ? 'info' : 'success',
+          actionLabel: '查看单据',
+          to: row.entity_id ? `/cards/${row.entity_id}/print` : '/cards',
+        });
+      }
+    }
+
+    return items
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+      .slice(0, 12);
+  }
+
+  async getNotificationOverview(viewer: AuthUser): Promise<NotificationOverview> {
+    const cardRows = this.sqlite.query<CardRow>(
+      `
+        SELECT *
+        FROM process_cards
+        ORDER BY updated_at DESC
+      `,
+    );
+
+    const items = this.buildNotificationItems(cardRows, viewer);
+
+    return {
+      totalCount: items.length,
+      todoCount: items.filter((item) => item.level === 'todo' || item.level === 'warning').length,
+      items,
+    };
+  }
+
   async listAuditLogs(filters: AuditLogFilters): Promise<AuditLogEntry[]> {
     const parsed = auditLogFiltersSchema.parse(filters);
     const whereClauses = ['1 = 1'];
@@ -1155,26 +1422,8 @@ export class ProcessCardRepository {
       { label: '已作废', value: cardRows.filter((row) => row.status === 'voided').length },
     ];
 
-    const relatedCardIds = new Set<string>();
-
-    if (isAdmin(viewer)) {
-      cardRows.forEach((row) => relatedCardIds.add(row.id));
-    } else {
-      cardRows.forEach((row) => {
-        if (row.created_by_user_id === viewer.id) {
-          relatedCardIds.add(row.id);
-        }
-        if (hasWorkflowRole(viewer, 'confirm') && row.confirmed_user_id === viewer.id) {
-          relatedCardIds.add(row.id);
-        }
-        if (hasWorkflowRole(viewer, 'review') && row.reviewed_user_id === viewer.id) {
-          relatedCardIds.add(row.id);
-        }
-        if (hasWorkflowRole(viewer, 'approve') && row.approved_user_id === viewer.id) {
-          relatedCardIds.add(row.id);
-        }
-      });
-    }
+    const relatedCardIds = this.collectRelatedCardIds(cardRows, viewer);
+    const notifications = this.buildNotificationItems(cardRows, viewer);
 
     const recentActivities: DashboardActivityItem[] =
       relatedCardIds.size === 0
@@ -1221,6 +1470,8 @@ export class ProcessCardRepository {
       trend,
       statusDistribution: statusDistribution.filter((item) => item.value > 0),
       recentActivities,
+      notifications,
+      notificationCount: notifications.filter((item) => item.level === 'todo' || item.level === 'warning').length,
     };
   }
 
@@ -1542,6 +1793,63 @@ export class ProcessCardRepository {
     return this.getUserAccounts();
   }
 
+  async deleteUserAccount(id: string, actor: AuthUser, ipAddress = '') {
+    const [existing] = this.sqlite.query<UserRow>(
+      'SELECT id, username, display_name, role, is_active FROM users WHERE id = ?',
+      [id],
+    );
+
+    if (!existing) {
+      throw new Error('账号不存在。');
+    }
+
+    if (existing.id === actor.id) {
+      throw new Error('不能删除当前登录账号。');
+    }
+
+    if (existing.username === 'admin') {
+      throw new Error('默认管理员账号不能删除。');
+    }
+
+    const [{ count: processCardCount }] = this.sqlite.query<{ count: number }>(
+      `
+        SELECT COUNT(*) AS count
+        FROM process_cards
+        WHERE created_by_user_id = ?
+           OR confirmed_user_id = ?
+           OR reviewed_user_id = ?
+           OR approved_user_id = ?
+           OR current_handler_user_id = ?
+      `,
+      [id, id, id, id, id],
+    );
+
+    if (processCardCount > 0) {
+      throw new Error('该账号已参与工艺卡流程，不能删除，请改为停用。');
+    }
+
+    this.sqlite.transaction(() => {
+      this.sqlite.run('DELETE FROM sessions WHERE user_id = ?', [id]);
+      this.sqlite.run('DELETE FROM user_roles WHERE user_id = ?', [id]);
+      this.sqlite.run('DELETE FROM users WHERE id = ?', [id]);
+      this.writeAuditLog({
+        category: 'user',
+        entityType: 'user',
+        entityId: id,
+        action: 'delete',
+        actor,
+        targetUserId: id,
+        targetDisplayName: existing.display_name,
+        summary: `删除账号：${existing.display_name}（${existing.username}）`,
+        detailText: '管理员删除了未参与工艺卡流程的账号，历史日志保留。',
+        ipAddress,
+      });
+    });
+
+    await this.sqlite.persist();
+    return this.getUserAccounts();
+  }
+
   async login(username: string, password: string, ipAddress = ''): Promise<LoginResponse | null> {
     const normalizedUsername = username.trim().toLowerCase();
     const [user] = this.sqlite.query<UserRow>(
@@ -1593,7 +1901,7 @@ export class ProcessCardRepository {
         ipAddress,
       });
       await this.sqlite.persist();
-      return null;
+      throw new Error('账号已停用，请联系管理员。');
     }
 
     const token = randomBytes(32).toString('hex');
@@ -2072,6 +2380,10 @@ export class ProcessCardRepository {
         remark: '',
       })),
     };
+    this.validateProcessCardRequiredFields(payload);
+    this.assertWorkflowAssigneeExists(payload.confirmedUserId, '确认人');
+    this.assertWorkflowAssigneeExists(payload.reviewedUserId, '审核人');
+    this.assertWorkflowAssigneeExists(payload.approvedUserId, '批准人');
     const now = new Date().toISOString();
     const cardId = payload.id ?? randomUUID();
     const beforePayload = payload.id ? await this.getProcessCard(payload.id, null) : null;

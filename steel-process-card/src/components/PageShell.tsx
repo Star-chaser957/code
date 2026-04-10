@@ -1,12 +1,42 @@
+import { useEffect, useState } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
 import { WORKFLOW_ROLE_LABELS } from '../../shared/types';
 import { useAuth } from '../auth/AuthProvider';
+import { api } from '../lib/api';
 
 export function PageShell() {
   const { isAdmin, logout, user } = useAuth();
+  const [todoCount, setTodoCount] = useState(0);
   const workflowRoleText = user?.workflowRoles.length
     ? user.workflowRoles.map((roleCode) => WORKFLOW_ROLE_LABELS[roleCode]).join(' / ')
     : '查看';
+
+  useEffect(() => {
+    let active = true;
+
+    const loadNotifications = async () => {
+      try {
+        const response = await api.getNotificationOverview();
+        if (active) {
+          setTodoCount(response.todoCount);
+        }
+      } catch {
+        if (active) {
+          setTodoCount(0);
+        }
+      }
+    };
+
+    void loadNotifications();
+    const timer = window.setInterval(() => {
+      void loadNotifications();
+    }, 60_000);
+
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, []);
 
   return (
     <div className="app-shell">
@@ -42,6 +72,10 @@ export function PageShell() {
             <NavLink to="/" end className="nav-link">
               工作台
             </NavLink>
+            <NavLink to="/messages" className="nav-link nav-link--with-badge">
+              <span>站内消息</span>
+              {todoCount > 0 ? <span className="nav-link__badge">{todoCount}</span> : null}
+            </NavLink>
             <NavLink to="/cards" end className="nav-link">
               工艺卡列表
             </NavLink>
@@ -70,8 +104,8 @@ export function PageShell() {
 
         <div className="sidebar__hint">
           <h2>当前说明</h2>
-          <p>系统支持编制、确认、审核、批准的受控流程，并能保留完整审批留痕。</p>
-          <p>首页工作台会展示当前待办、统计图表和最近流程动态。</p>
+          <p>系统支持编制、确认、审核、批准的受控流程，并保留完整审批留痕。</p>
+          <p>站内消息会优先提醒当前角色待处理的工艺卡和最近流转动态。</p>
         </div>
       </aside>
 

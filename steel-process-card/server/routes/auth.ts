@@ -12,14 +12,22 @@ const loginSchema = z.object({
 export const authRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post('/login', async (request, reply) => {
     const payload = loginSchema.parse(request.body as LoginRequest);
-    const session = await repository.login(payload.username, payload.password, request.ip);
 
-    if (!session) {
+    try {
+      const session = await repository.login(payload.username, payload.password, request.ip);
+
+      if (!session) {
+        reply.code(401);
+        return { message: '账号或密码错误，请重新输入。' };
+      }
+
+      return session;
+    } catch (error) {
       reply.code(401);
-      return { message: '账号或密码错误。' };
+      return {
+        message: error instanceof Error ? error.message : '登录失败，请稍后再试。',
+      };
     }
-
-    return session;
   });
 
   fastify.get('/me', async (request, reply) => {
