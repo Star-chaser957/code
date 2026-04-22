@@ -653,6 +653,26 @@ a {
   gap: 16px;
 }
 
+.notification-toolbar,
+.filter-group,
+.notification-card__title-row,
+.toast-stack {
+  display: flex;
+}
+
+.notification-toolbar {
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.filter-group {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .admin-role-selector {
   display: grid;
   gap: 8px;
@@ -696,6 +716,14 @@ a {
   background: rgba(92, 110, 128, 0.06);
 }
 
+.notification-card--read {
+  opacity: 0.78;
+}
+
+.notification-card--unread {
+  box-shadow: 0 14px 28px rgba(15, 23, 42, 0.06);
+}
+
 .admin-user-card__header,
 .admin-user-card__footer,
 .audit-log-card__header,
@@ -729,14 +757,89 @@ a {
   font-weight: 700;
 }
 
+.notification-card__title-row {
+  align-items: center;
+  gap: 8px;
+}
+
+.notification-card__type {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: rgba(24, 33, 29, 0.05);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.notification-card__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--danger);
+}
+
 .notification-card__actions {
   display: flex;
   justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
   margin-top: 12px;
 }
 
 .admin-password-field {
   min-width: min(240px, 100%);
+}
+
+.toast-stack {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 1200;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+  pointer-events: none;
+}
+
+.toast {
+  min-width: 240px;
+  max-width: min(360px, calc(100vw - 32px));
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: rgba(24, 33, 29, 0.92);
+  color: white;
+  box-shadow: 0 14px 28px rgba(15, 23, 42, 0.2);
+}
+
+.toast strong {
+  display: block;
+}
+
+.toast p {
+  margin: 4px 0 0;
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 13px;
+}
+
+.toast--success {
+  background: rgba(47, 107, 79, 0.96);
+}
+
+.toast--warning {
+  background: rgba(214, 122, 51, 0.96);
+}
+
+.toast--error {
+  background: rgba(193, 69, 69, 0.96);
+}
+
+.toast--info {
+  background: rgba(46, 79, 122, 0.96);
 }
 
 .audit-log-card__meta {
@@ -1187,6 +1290,43 @@ a {
   gap: 14px;
   width: min(360px, 100%);
   margin: 0 auto;
+}
+
+.password-input {
+  position: relative;
+}
+
+.password-input input {
+  width: 100%;
+  padding-right: 70px;
+}
+
+.password-input__toggle {
+  position: absolute;
+  top: 50%;
+  right: 10px;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+  border-radius: 10px;
+}
+
+.password-input__toggle:hover {
+  color: #244d39;
+  background: rgba(47, 107, 79, 0.08);
+}
+
+.password-input__toggle svg {
+  width: 20px;
+  height: 20px;
 }
 
 .login-submit {

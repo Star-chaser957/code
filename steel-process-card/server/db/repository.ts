@@ -296,6 +296,10 @@ type AuditLogRow = {
   created_at: string;
 };
 
+type NotificationReadRow = {
+  notification_id: string;
+};
+
 const SESSION_TTL_MS = 1000 * 60 * 60 * appConfig.sessionTtlHours;
 const WORKFLOW_ROLE_ORDER: WorkflowRole[] = ['prepare', 'confirm', 'review', 'approve'];
 
@@ -737,6 +741,14 @@ export class ProcessCardRepository {
       CREATE INDEX IF NOT EXISTS idx_audit_logs_actor_user_id ON audit_logs (actor_user_id);
       CREATE INDEX IF NOT EXISTS idx_audit_logs_entity ON audit_logs (entity_type, entity_id);
       CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs (created_at);
+
+      CREATE TABLE IF NOT EXISTS notification_reads (
+        user_id TEXT NOT NULL,
+        notification_id TEXT NOT NULL,
+        read_at TEXT NOT NULL,
+        PRIMARY KEY (user_id, notification_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_notification_reads_user_id ON notification_reads (user_id);
     `);
   }
 
@@ -1079,6 +1091,19 @@ export class ProcessCardRepository {
     return getPermissions(card, viewer).canEdit ? `/cards/${card.id}/edit` : `/cards/${card.id}/print`;
   }
 
+  private getNotificationReadMap(userId: string) {
+    const rows = this.sqlite.query<NotificationReadRow>(
+      `
+        SELECT notification_id
+        FROM notification_reads
+        WHERE user_id = ?
+      `,
+      [userId],
+    );
+
+    return new Set(rows.map((row) => row.notification_id));
+  }
+
   private collectRelatedCardIds(cardRows: CardRow[], viewer: AuthUser) {
     const relatedCardIds = new Set<string>();
 
@@ -1105,22 +1130,31 @@ export class ProcessCardRepository {
     return relatedCardIds;
   }
 
-  private buildNotificationItems(cardRows: CardRow[], viewer: AuthUser): NotificationItem[] {
+  private buildNotificationItems(
+    cardRows: CardRow[],
+    viewer: AuthUser,
+    readMap: Set<string> = new Set(),
+  ): NotificationItem[] {
     const items: NotificationItem[] = [];
     const pushCardNotice = (
       card: CardRow,
       level: NotificationItem['level'],
+      type: NotificationItem['type'],
+      suffix: string,
       title: string,
       description: string,
       actionLabel: string,
       to?: string,
     ) => {
+      const id = `card-${card.id}-${suffix}-${card.updated_at}`;
       items.push({
-        id: `card-${card.id}-${title}`,
+        id,
+        type,
         title,
         description,
         createdAt: card.updated_at,
         level,
+        isRead: readMap.has(id),
         actionLabel,
         to: to ?? this.getCardTargetPath(card, viewer),
       });
@@ -1134,12 +1168,15 @@ export class ProcessCardRepository {
       ).length;
 
       if (pendingTotal > 0) {
+        const id = `admin-global-pending-${pendingTotal}`;
         items.push({
-          id: 'admin-global-pending',
+          id,
+          type: 'todo',
           title: `当前共有 ${pendingTotal} 张流程中工艺卡`,
           description: '可进入工作台或工艺卡列表统筹查看待确认、待审核和待批准单据。',
           createdAt: new Date().toISOString(),
           level: 'todo',
+          isRead: readMap.has(id),
           actionLabel: '查看列表',
           to: '/cards',
         });
@@ -1154,7 +1191,7 @@ export class ProcessCardRepository {
         card.created_by_user_id === viewer.id &&
         card.status === 'draft'
       ) {
-        pushCardNotice(card, 'todo', `${cardTitle} 仍是草稿`, '请尽快补全信息并提交确认。', '继续编制');
+        pushCardNotice(card, 'todo', 'todo', 'draft', `${cardTitle} 仍是草稿`, '请尽快补全信息并提交确认。', '继续编制');
       }
 
       if (
@@ -1165,6 +1202,8 @@ export class ProcessCardRepository {
         pushCardNotice(
           card,
           'warning',
+          'todo',
+          'rejected-to-prepare',
           `${cardTitle} 已退回编制`,
           card.last_return_comment.trim() || '请根据退回意见修改后重新提交。',
           '立即修改',
@@ -1179,6 +1218,8 @@ export class ProcessCardRepository {
         pushCardNotice(
           card,
           card.status === 'rejected_to_confirm' ? 'warning' : 'todo',
+          'todo',
+          card.status === 'rejected_to_confirm' ? 'rejected-to-confirm' : 'pending-confirm',
           `${cardTitle} 待你确认`,
           card.status === 'rejected_to_confirm'
             ? card.last_return_comment.trim() || '该工艺卡已回到确认环节，请重新处理。'
@@ -1195,6 +1236,8 @@ export class ProcessCardRepository {
         pushCardNotice(
           card,
           card.status === 'rejected_to_review' ? 'warning' : 'todo',
+          'todo',
+          card.status === 'rejected_to_review' ? 'rejected-to-review' : 'pending-review',
           `${cardTitle} 待你审核`,
           card.status === 'rejected_to_review'
             ? card.last_return_comment.trim() || '该工艺卡已退回审核环节，请重新审阅。'
@@ -1212,6 +1255,8 @@ export class ProcessCardRepository {
         pushCardNotice(
           card,
           'todo',
+          'todo',
+          'pending-approve',
           `${cardTitle} 待你批准`,
           '批准通过后工艺卡将锁定，请确认无误后再提交。',
           '进入批准',
@@ -1251,12 +1296,15 @@ export class ProcessCardRepository {
           );
 
       for (const row of recentLogs) {
+        const id = `log-${row.id}`;
         items.push({
-          id: `log-${row.id}`,
+          id,
+          type: 'notice',
           title: row.summary,
           description: row.detail_text || `${row.actor_display_name || '系统'} 发起了流程变更。`,
           createdAt: row.created_at,
           level: row.category === 'approval' ? 'info' : 'success',
+          isRead: readMap.has(id),
           actionLabel: '查看单据',
           to: row.entity_id ? `/cards/${row.entity_id}/print` : '/cards',
         });
@@ -1264,7 +1312,13 @@ export class ProcessCardRepository {
     }
 
     return items
-      .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+      .sort((left, right) => {
+        if (left.isRead !== right.isRead) {
+          return Number(left.isRead) - Number(right.isRead);
+        }
+
+        return right.createdAt.localeCompare(left.createdAt);
+      })
       .slice(0, 12);
   }
 
@@ -1277,13 +1331,50 @@ export class ProcessCardRepository {
       `,
     );
 
-    const items = this.buildNotificationItems(cardRows, viewer);
+    const readMap = this.getNotificationReadMap(viewer.id);
+    const items = this.buildNotificationItems(cardRows, viewer, readMap);
 
     return {
       totalCount: items.length,
-      todoCount: items.filter((item) => item.level === 'todo' || item.level === 'warning').length,
+      todoCount: items.filter((item) => item.type === 'todo').length,
+      unreadCount: items.filter((item) => !item.isRead).length,
       items,
     };
+  }
+
+  async markNotificationRead(viewer: AuthUser, notificationId: string) {
+    const nowIso = new Date().toISOString();
+
+    this.sqlite.run(
+      `
+        INSERT INTO notification_reads (user_id, notification_id, read_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT (user_id, notification_id) DO UPDATE SET
+          read_at = excluded.read_at
+      `,
+      [viewer.id, notificationId, nowIso],
+    );
+
+    return this.getNotificationOverview(viewer);
+  }
+
+  async markAllNotificationsRead(viewer: AuthUser) {
+    const overview = await this.getNotificationOverview(viewer);
+    const nowIso = new Date().toISOString();
+
+    for (const item of overview.items.filter((entry) => !entry.isRead)) {
+      this.sqlite.run(
+        `
+          INSERT INTO notification_reads (user_id, notification_id, read_at)
+          VALUES (?, ?, ?)
+          ON CONFLICT (user_id, notification_id) DO UPDATE SET
+            read_at = excluded.read_at
+        `,
+        [viewer.id, item.id, nowIso],
+      );
+    }
+
+    return this.getNotificationOverview(viewer);
   }
 
   async listAuditLogs(filters: AuditLogFilters): Promise<AuditLogEntry[]> {
@@ -1423,7 +1514,8 @@ export class ProcessCardRepository {
     ];
 
     const relatedCardIds = this.collectRelatedCardIds(cardRows, viewer);
-    const notifications = this.buildNotificationItems(cardRows, viewer);
+    const notificationReadMap = this.getNotificationReadMap(viewer.id);
+    const notifications = this.buildNotificationItems(cardRows, viewer, notificationReadMap);
 
     const recentActivities: DashboardActivityItem[] =
       relatedCardIds.size === 0
@@ -1471,7 +1563,7 @@ export class ProcessCardRepository {
       statusDistribution: statusDistribution.filter((item) => item.value > 0),
       recentActivities,
       notifications,
-      notificationCount: notifications.filter((item) => item.level === 'todo' || item.level === 'warning').length,
+      notificationCount: notifications.filter((item) => item.type === 'todo' && !item.isRead).length,
     };
   }
 

@@ -7,6 +7,7 @@ import {
   type PropsWithChildren,
 } from 'react';
 import type { AuthUser, LoginRequest, WorkflowRole } from '../../shared/types';
+import { useToast } from '../components/ToastProvider';
 import { api } from '../lib/api';
 import { clearAuthToken, getAuthToken, setAuthToken } from '../lib/auth-store';
 
@@ -22,14 +23,24 @@ type AuthContextValue = {
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: PropsWithChildren) {
+  const { pushToast } = useToast();
   const [user, setUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const handleUnauthorized = () => {
+      const hadToken = Boolean(getAuthToken());
       clearAuthToken();
       setUser(null);
       setLoading(false);
+
+      if (hadToken && window.location.pathname !== '/login') {
+        pushToast({
+          tone: 'warning',
+          title: '登录已过期',
+          description: '请重新登录后继续操作。',
+        });
+      }
     };
 
     window.addEventListener('auth:unauthorized', handleUnauthorized);
@@ -58,7 +69,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
     return () => {
       window.removeEventListener('auth:unauthorized', handleUnauthorized);
     };
-  }, []);
+  }, [pushToast]);
 
   const value = useMemo<AuthContextValue>(
     () => ({

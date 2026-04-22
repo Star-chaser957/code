@@ -6,7 +6,7 @@ import { api } from '../lib/api';
 
 export function PageShell() {
   const { isAdmin, logout, user } = useAuth();
-  const [todoCount, setTodoCount] = useState(0);
+  const [unreadCount, setUnreadCount] = useState(0);
   const workflowRoleText = user?.workflowRoles.length
     ? user.workflowRoles.map((roleCode) => WORKFLOW_ROLE_LABELS[roleCode]).join(' / ')
     : '查看';
@@ -18,23 +18,28 @@ export function PageShell() {
       try {
         const response = await api.getNotificationOverview();
         if (active) {
-          setTodoCount(response.todoCount);
+          setUnreadCount(response.unreadCount);
         }
       } catch {
         if (active) {
-          setTodoCount(0);
+          setUnreadCount(0);
         }
       }
     };
 
     void loadNotifications();
+    const handleRefresh = () => {
+      void loadNotifications();
+    };
     const timer = window.setInterval(() => {
       void loadNotifications();
     }, 60_000);
+    window.addEventListener('notifications:changed', handleRefresh);
 
     return () => {
       active = false;
       window.clearInterval(timer);
+      window.removeEventListener('notifications:changed', handleRefresh);
     };
   }, []);
 
@@ -74,7 +79,7 @@ export function PageShell() {
             </NavLink>
             <NavLink to="/messages" className="nav-link nav-link--with-badge">
               <span>站内消息</span>
-              {todoCount > 0 ? <span className="nav-link__badge">{todoCount}</span> : null}
+              {unreadCount > 0 ? <span className="nav-link__badge">{unreadCount}</span> : null}
             </NavLink>
             <NavLink to="/cards" end className="nav-link">
               工艺卡列表

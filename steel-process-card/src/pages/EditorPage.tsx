@@ -20,6 +20,7 @@ import {
 import { useAuth } from '../auth/AuthProvider';
 import { OperationEditor } from '../components/OperationEditor';
 import { PrintTemplate } from '../components/PrintTemplate';
+import { useToast } from '../components/ToastProvider';
 import { api } from '../lib/api';
 
 function sortOperations(operations: CardOperation[]) {
@@ -126,6 +127,7 @@ export function EditorPage() {
   const navigate = useNavigate();
   const { id } = useParams();
   const { user, hasWorkflowRole } = useAuth();
+  const { pushToast } = useToast();
   const isEditMode = Boolean(id);
 
   const [definitions, setDefinitions] = useState<OperationDefinition[]>([]);
@@ -404,6 +406,12 @@ export function EditorPage() {
       setCard(updated);
       setApprovalComment('');
       setMessage(`流程动作“${APPROVAL_ACTION_LABELS[action]}”已完成。`);
+      pushToast({
+        tone: 'success',
+        title: '流程已提交',
+        description: `已执行“${APPROVAL_ACTION_LABELS[action]}”`,
+      });
+      window.dispatchEvent(new Event('notifications:changed'));
       setError('');
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '流程提交失败');
@@ -464,6 +472,12 @@ export function EditorPage() {
       setCard(updated);
       setApprovalComment('');
       setMessage(`流程动作“${APPROVAL_ACTION_LABELS[action]}”已完成。`);
+      pushToast({
+        tone: 'success',
+        title: '流程已提交',
+        description: `已执行“${APPROVAL_ACTION_LABELS[action]}”`,
+      });
+      window.dispatchEvent(new Event('notifications:changed'));
       setError('');
     } catch (reason) {
       showErrorDialog(reason instanceof Error ? reason.message : '流程提交失败，请稍后再试。');

@@ -81,6 +81,16 @@ export const api = {
   getNotificationOverview: async () =>
     request<NotificationOverview>('/api/dashboard/notifications'),
 
+  markNotificationRead: async (id: string) =>
+    request<NotificationOverview>(`/api/dashboard/notifications/${encodeURIComponent(id)}/read`, {
+      method: 'POST',
+    }),
+
+  markAllNotificationsRead: async () =>
+    request<NotificationOverview>('/api/dashboard/notifications/read-all', {
+      method: 'POST',
+    }),
+
   logout: async () =>
     request<{ success: boolean }>('/api/auth/logout', {
       method: 'POST',

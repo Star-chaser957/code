@@ -302,13 +302,16 @@ export type DashboardActivityItem = {
 };
 
 export type NotificationLevel = 'todo' | 'warning' | 'info' | 'success';
+export type NotificationType = 'todo' | 'notice';
 
 export type NotificationItem = {
   id: string;
+  type: NotificationType;
   title: string;
   description: string;
   createdAt: string;
   level: NotificationLevel;
+  isRead: boolean;
   actionLabel: string;
   to: string;
 };
@@ -316,6 +319,7 @@ export type NotificationItem = {
 export type NotificationOverview = {
   totalCount: number;
   todoCount: number;
+  unreadCount: number;
   items: NotificationItem[];
 };
 

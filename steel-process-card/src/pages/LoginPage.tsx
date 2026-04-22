@@ -12,8 +12,9 @@ export function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const { login } = useAuth();
-  const [username, setUsername] = useState('admin');
-  const [password, setPassword] = useState('admin123');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
 
@@ -50,10 +51,10 @@ export function LoginPage() {
     <div className="login-shell">
       <div className="login-card">
         <div className="login-brand">
-          <img src="/logo.png" alt="Production Process Card System" />
+          <img src="/logo.png" alt="Production Process Card Management System" />
           <div className="login-brand__copy">
-            <h1>生产工艺卡系统</h1>
-            <p className="page__eyebrow">Production Process Card</p>
+            <h1>生产工艺卡管理系统</h1>
+            <p className="page__eyebrow">Production Process Card Management</p>
           </div>
         </div>
 
@@ -63,20 +64,77 @@ export function LoginPage() {
             <input
               value={username}
               autoComplete="username"
-              onChange={(event) => setUsername(event.target.value)}
+              onChange={(event) => {
+                setUsername(event.target.value);
+                if (error) {
+                  setError('');
+                }
+              }}
               placeholder="请输入账号"
             />
           </label>
 
           <label className="field">
             <span>密码</span>
-            <input
-              type="password"
-              value={password}
-              autoComplete="current-password"
-              onChange={(event) => setPassword(event.target.value)}
-              placeholder="请输入密码"
-            />
+            <div className="password-input">
+              <input
+                type={showPassword ? 'text' : 'password'}
+                value={password}
+                autoComplete="current-password"
+                onChange={(event) => {
+                  setPassword(event.target.value);
+                  if (error) {
+                    setError('');
+                  }
+                }}
+                placeholder="请输入密码"
+              />
+              <button
+                type="button"
+                className="password-input__toggle"
+                aria-label={showPassword ? '隐藏密码' : '显示密码'}
+                title={showPassword ? '隐藏密码' : '显示密码'}
+                onClick={() => setShowPassword((current) => !current)}
+              >
+                {showPassword ? (
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path
+                      d="M3 4.5 19.5 21"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.8"
+                      strokeLinecap="round"
+                    />
+                    <path
+                      d="M10.6 6.2A10.9 10.9 0 0 1 12 6c5.4 0 9.4 4.6 10 6-.3.7-1.5 2.6-3.4 4.1M14.8 14.9A3.5 3.5 0 0 1 9 12.2M6.3 9.3A15.2 15.2 0 0 0 2 12c.6 1.4 4.6 6 10 6 1.2 0 2.4-.2 3.4-.6"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.8"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                ) : (
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path
+                      d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6-10-6-10-6Z"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.8"
+                      strokeLinejoin="round"
+                    />
+                    <circle
+                      cx="12"
+                      cy="12"
+                      r="3"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.8"
+                    />
+                  </svg>
+                )}
+              </button>
+            </div>
           </label>
 
           {error ? <div className="state state--error">{error}</div> : null}

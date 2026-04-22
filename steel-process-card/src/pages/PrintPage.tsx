@@ -6,11 +6,13 @@ import {
   APPROVAL_ACTION_LABELS,
   CARD_STATUS_LABELS,
 } from '../../shared/types';
+import { useToast } from '../components/ToastProvider';
 import { PrintTemplate } from '../components/PrintTemplate';
 import { api } from '../lib/api';
 
 export function PrintPage() {
   const { id } = useParams();
+  const { pushToast } = useToast();
   const [definitions, setDefinitions] = useState<OperationDefinition[]>([]);
   const [card, setCard] = useState<ProcessCardPayload | null>(null);
   const [approvalComment, setApprovalComment] = useState('');
@@ -58,6 +60,12 @@ export function PrintPage() {
       setCard(updated);
       setApprovalComment('');
       setMessage(`流程动作“${APPROVAL_ACTION_LABELS[action]}”已完成。`);
+      pushToast({
+        tone: 'success',
+        title: '审批已完成',
+        description: `已执行“${APPROVAL_ACTION_LABELS[action]}”`,
+      });
+      window.dispatchEvent(new Event('notifications:changed'));
       setError('');
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '审批提交失败');

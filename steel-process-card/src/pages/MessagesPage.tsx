@@ -1,7 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { NotificationItem, NotificationOverview } from '../../shared/types';
 import { api } from '../lib/api';
+
+type ReadFilter = 'all' | 'unread' | 'read';
+type TypeFilter = 'all' | 'todo' | 'notice';
 
 function getLevelLabel(level: NotificationItem['level']) {
   switch (level) {
@@ -16,10 +19,17 @@ function getLevelLabel(level: NotificationItem['level']) {
   }
 }
 
+function getTypeLabel(type: NotificationItem['type']) {
+  return type === 'todo' ? '待办' : '通知';
+}
+
 export function MessagesPage() {
   const [overview, setOverview] = useState<NotificationOverview | null>(null);
   const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const [readFilter, setReadFilter] = useState<ReadFilter>('all');
+  const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
 
   useEffect(() => {
     let active = true;
@@ -50,6 +60,54 @@ export function MessagesPage() {
     };
   }, []);
 
+  const filteredItems = useMemo(() => {
+    const items = overview?.items ?? [];
+
+    return items.filter((item) => {
+      if (readFilter === 'unread' && item.isRead) {
+        return false;
+      }
+
+      if (readFilter === 'read' && !item.isRead) {
+        return false;
+      }
+
+      if (typeFilter !== 'all' && item.type !== typeFilter) {
+        return false;
+      }
+
+      return true;
+    });
+  }, [overview?.items, readFilter, typeFilter]);
+
+  const handleMarkRead = async (id: string) => {
+    setSubmitting(true);
+    try {
+      const response = await api.markNotificationRead(id);
+      setOverview(response);
+      setError('');
+      window.dispatchEvent(new Event('notifications:changed'));
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : '标记已读失败。');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleMarkAllRead = async () => {
+    setSubmitting(true);
+    try {
+      const response = await api.markAllNotificationsRead();
+      setOverview(response);
+      setError('');
+      window.dispatchEvent(new Event('notifications:changed'));
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : '全部标记已读失败。');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   return (
     <div className="page">
       <header className="page__header">
@@ -64,6 +122,10 @@ export function MessagesPage() {
 
       <section className="dashboard-grid dashboard-grid--tasks">
         <article className="panel dashboard-card">
+          <span className="dashboard-card__label">未读消息</span>
+          <strong>{overview?.unreadCount ?? 0}</strong>
+        </article>
+        <article className="panel dashboard-card">
           <span className="dashboard-card__label">待办提醒</span>
           <strong>{overview?.todoCount ?? 0}</strong>
         </article>
@@ -76,24 +138,100 @@ export function MessagesPage() {
       <section className="panel">
         <div className="panel__header">
           <h3>消息列表</h3>
-          <span>{loading ? '加载中...' : `共 ${overview?.items.length ?? 0} 条`}</span>
+          <span>{loading ? '加载中...' : `共 ${filteredItems.length} 条`}</span>
+        </div>
+
+        <div className="notification-toolbar">
+          <div className="filter-group">
+            <button
+              type="button"
+              className={`button button--small ${readFilter === 'all' ? 'button--primary' : 'button--ghost'}`}
+              onClick={() => setReadFilter('all')}
+            >
+              全部
+            </button>
+            <button
+              type="button"
+              className={`button button--small ${readFilter === 'unread' ? 'button--primary' : 'button--ghost'}`}
+              onClick={() => setReadFilter('unread')}
+            >
+              未读
+            </button>
+            <button
+              type="button"
+              className={`button button--small ${readFilter === 'read' ? 'button--primary' : 'button--ghost'}`}
+              onClick={() => setReadFilter('read')}
+            >
+              已读
+            </button>
+          </div>
+
+          <div className="filter-group">
+            <button
+              type="button"
+              className={`button button--small ${typeFilter === 'all' ? 'button--primary' : 'button--ghost'}`}
+              onClick={() => setTypeFilter('all')}
+            >
+              全部类型
+            </button>
+            <button
+              type="button"
+              className={`button button--small ${typeFilter === 'todo' ? 'button--primary' : 'button--ghost'}`}
+              onClick={() => setTypeFilter('todo')}
+            >
+              只看待办
+            </button>
+            <button
+              type="button"
+              className={`button button--small ${typeFilter === 'notice' ? 'button--primary' : 'button--ghost'}`}
+              onClick={() => setTypeFilter('notice')}
+            >
+              只看通知
+            </button>
+          </div>
+
+          <button
+            type="button"
+            className="button button--ghost button--small"
+            disabled={submitting || (overview?.unreadCount ?? 0) === 0}
+            onClick={() => void handleMarkAllRead()}
+          >
+            全部标记已读
+          </button>
         </div>
 
         {loading ? <div className="state">正在读取站内消息...</div> : null}
 
         {!loading ? (
           <div className="notification-list">
-            {overview?.items.map((item) => (
-              <article key={item.id} className={`notification-card notification-card--${item.level}`}>
+            {filteredItems.map((item) => (
+              <article
+                key={item.id}
+                className={`notification-card notification-card--${item.level} ${item.isRead ? 'notification-card--read' : 'notification-card--unread'}`}
+              >
                 <div className="notification-card__header">
                   <div>
-                    <span className="notification-card__badge">{getLevelLabel(item.level)}</span>
+                    <div className="notification-card__title-row">
+                      <span className="notification-card__badge">{getLevelLabel(item.level)}</span>
+                      <span className="notification-card__type">{getTypeLabel(item.type)}</span>
+                      {!item.isRead ? <span className="notification-card__dot" /> : null}
+                    </div>
                     <strong>{item.title}</strong>
+                    <p>{item.description}</p>
                   </div>
                   <span>{new Date(item.createdAt).toLocaleString('zh-CN')}</span>
                 </div>
-                <p>{item.description}</p>
                 <div className="notification-card__actions">
+                  {!item.isRead ? (
+                    <button
+                      type="button"
+                      className="button button--ghost button--small"
+                      disabled={submitting}
+                      onClick={() => void handleMarkRead(item.id)}
+                    >
+                      标记已读
+                    </button>
+                  ) : null}
                   <Link to={item.to} className="button button--ghost button--small">
                     {item.actionLabel}
                   </Link>
@@ -101,7 +239,7 @@ export function MessagesPage() {
               </article>
             ))}
 
-            {!overview?.items.length ? <div className="state">当前没有新的站内消息。</div> : null}
+            {filteredItems.length === 0 ? <div className="state">当前筛选条件下没有消息。</div> : null}
           </div>
         ) : null}
       </section>
