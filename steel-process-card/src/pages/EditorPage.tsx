@@ -27,6 +27,29 @@ function sortOperations(operations: CardOperation[]) {
   return [...operations].sort((left, right) => left.sortOrder - right.sortOrder);
 }
 
+function getOperationDisplayName(operation: CardOperation, definition: OperationDefinition) {
+  return operation.operationCode.startsWith('custom-operation')
+    ? operation.customName.trim() || definition.name
+    : definition.name;
+}
+
+function isPrimaryWorkflowAction(action: ApprovalAction) {
+  return (
+    action === 'submit_confirm' ||
+    action === 'submit_review' ||
+    action === 'submit_approve' ||
+    action === 'approve'
+  );
+}
+
+function sortWorkflowActions(actions: ApprovalAction[]) {
+  return [...actions].sort((left, right) => {
+    const leftScore = isPrimaryWorkflowAction(left) ? 0 : 1;
+    const rightScore = isPrimaryWorkflowAction(right) ? 0 : 1;
+    return leftScore - rightScore;
+  });
+}
+
 function clonePrefillOperations(
   definitions: OperationDefinition[],
   operations: CardOperation[],
@@ -235,11 +258,13 @@ export function EditorPage() {
 
   const availableActions = useMemo<ApprovalAction[]>(() => {
     if (isEditMode) {
-      return card?.permissions.availableActions ?? [];
+      return sortWorkflowActions(card?.permissions.availableActions ?? []);
     }
 
     return hasWorkflowRole('prepare') ? ['submit_confirm'] : [];
   }, [card?.permissions.availableActions, hasWorkflowRole, isEditMode]);
+  const showApprovalCommentField =
+    isEditMode && availableActions.some((action) => APPROVAL_ACTION_COMMENT_REQUIRED.includes(action));
 
   const selectableUsers = useMemo(
     () => {
@@ -497,6 +522,14 @@ export function EditorPage() {
     );
   }
 
+  if (!isEditMode && !hasWorkflowRole('prepare')) {
+    return (
+      <div className="page">
+        <div className="state state--error">当前账号没有新建工艺卡权限。</div>
+      </div>
+    );
+  }
+
   return (
     <div className="page page--editor">
       <header className="page__header">
@@ -673,7 +706,7 @@ export function EditorPage() {
                       disabled={!canEdit}
                       onClick={() => toggleOperation(operation.operationCode)}
                     >
-                      {definition.name}
+                      {getOperationDisplayName(operation, definition)}
                     </button>
                   );
                 })}
@@ -890,17 +923,30 @@ export function EditorPage() {
                 <p>编制和确认可编辑表单；审核和批准以打印版式审阅后直接审批。</p>
               </div>
               <div className="workflow-actions">
-                <label className="field field--full">
-                  <span>审批意见</span>
-                  <textarea
-                    className="textarea--fixed"
-                    value={approvalComment}
-                    onChange={(event) => setApprovalComment(event.target.value)}
-                    placeholder="退回或驳回时请填写明确修改意见。"
-                  />
-                </label>
+                {showApprovalCommentField ? (
+                  <label className="field field--full">
+                    <span>审批意见</span>
+                    <textarea
+                      className="textarea--fixed"
+                      value={approvalComment}
+                      onChange={(event) => setApprovalComment(event.target.value)}
+                      placeholder="退回或驳回时请填写明确修改意见。"
+                    />
+                  </label>
+                ) : null}
 
                 <div className="toolbar">
+                  {availableActions.map((action) => (
+                    <button
+                      key={action}
+                      type="button"
+                      className={`button ${isPrimaryWorkflowAction(action) ? 'button--primary' : 'button--ghost'}`}
+                      disabled={saving}
+                      onClick={() => void handleWorkflowActionWithPrompt(action)}
+                    >
+                      {APPROVAL_ACTION_LABELS[action]}
+                    </button>
+                  ))}
                   {card.id ? (
                     <Link to={`/cards/${card.id}/print`} className="button">
                       打印预览
@@ -909,24 +955,13 @@ export function EditorPage() {
                   {canEdit ? (
                     <button
                       type="button"
-                      className="button button--primary"
+                      className="button button--ghost"
                       onClick={() => void handleSaveWithPrompt()}
                       disabled={saving}
                     >
                       {saving ? '处理中...' : '保存工艺卡'}
                     </button>
                   ) : null}
-                  {availableActions.map((action) => (
-                    <button
-                      key={action}
-                      type="button"
-                      className="button"
-                      disabled={saving}
-                      onClick={() => void handleWorkflowActionWithPrompt(action)}
-                    >
-                      {APPROVAL_ACTION_LABELS[action]}
-                    </button>
-                  ))}
                 </div>
               </div>
             </div>

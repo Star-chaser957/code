@@ -456,6 +456,10 @@ export function DashboardPage() {
   const dashboardMode = resolveDashboardMode(isAdmin, user?.workflowRoles ?? [], overview);
   const focusCards = buildFocusCards(cards, dashboardMode);
   const modeConfig = createModeConfig(dashboardMode, overview, focusCards);
+  const canCreateCards = isAdmin || Boolean(user?.workflowRoles.includes('prepare'));
+  const visibleShortcuts = modeConfig.shortcuts.filter((item) =>
+    canCreateCards ? true : item.to !== '/cards/new',
+  );
 
   const statCards = [
     { label: '今日新建', value: overview.stats.todayCreated },
@@ -478,7 +482,7 @@ export function DashboardPage() {
           </p>
         </div>
         <div className="dashboard-hero__actions">
-          {modeConfig.shortcuts.slice(0, 2).map((item) => (
+          {visibleShortcuts.slice(0, 2).map((item) => (
             <Link
               key={item.to}
               to={item.to}
@@ -596,7 +600,7 @@ export function DashboardPage() {
             <span>{modeConfig.shortcutDescription}</span>
           </div>
           <div className="dashboard-shortcuts">
-            {modeConfig.shortcuts.map((item) => (
+            {visibleShortcuts.map((item) => (
               <Link key={item.to} to={item.to} className="dashboard-shortcut">
                 <strong>{item.title}</strong>
                 <span>{item.description}</span>

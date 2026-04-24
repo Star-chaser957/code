@@ -65,6 +65,7 @@ const processCardSchema = z.object({
   productName: z.string(),
   material: z.string(),
   specification: z.string(),
+  lengthTolerance: z.string().optional().default(''),
   quantity: z.string(),
   deliveryDate: z.string(),
   deliveryStatus: z.string(),
@@ -89,6 +90,7 @@ const processCardSchema = z.object({
       operationCode: z.string(),
       sortOrder: z.number().int(),
       enabled: z.boolean(),
+      customName: z.string().optional().default(''),
       department: z.string(),
       specialCharacteristic: z.string(),
       deliveryTime: z.string(),
@@ -174,6 +176,7 @@ type CardRow = {
   product_name: string;
   material: string;
   specification: string;
+  length_tolerance: string;
   quantity: string;
   delivery_date: string;
   delivery_status: string;
@@ -226,6 +229,7 @@ type OperationRow = {
   operation_code: string;
   sort_order: number;
   enabled: number;
+  custom_name: string;
   department: string;
   special_characteristic: string;
   delivery_time: string;
@@ -430,7 +434,7 @@ const summarizeOperations = (operations: CardOperation[]) =>
         .join(' | ');
 
       return [
-        operation.operationCode,
+        operation.customName.trim() || operation.operationCode,
         operation.department,
         operation.specialCharacteristic,
         operation.deliveryTime,
@@ -644,7 +648,8 @@ function buildProcessCardChanges(before: ProcessCardPayload | null, after: Proce
       { field: '计划单号', before: '-', after: after.planNumber || '-' },
       { field: '产品名称', before: '-', after: after.productName || '-' },
       { field: '材质', before: '-', after: after.material || '-' },
-      { field: '规格', before: '-', after: after.specification || '-' },
+      { field: '规格及公差（mm）', before: '-', after: after.specification || '-' },
+      { field: '长度及公差（mm）', before: '-', after: after.lengthTolerance || '-' },
       { field: '启用工序', before: '-', after: summarizeOperations(after.operations) || '-' },
     ];
   }
@@ -655,8 +660,9 @@ function buildProcessCardChanges(before: ProcessCardPayload | null, after: Proce
   compareAuditField(changes, '接单日期', before.orderDate, after.orderDate);
   compareAuditField(changes, '产品名称', before.productName, after.productName);
   compareAuditField(changes, '材质', before.material, after.material);
-  compareAuditField(changes, '规格', before.specification, after.specification);
-  compareAuditField(changes, '数量', before.quantity, after.quantity);
+  compareAuditField(changes, '规格及公差（mm）', before.specification, after.specification);
+  compareAuditField(changes, '长度及公差（mm）', before.lengthTolerance, after.lengthTolerance);
+  compareAuditField(changes, '数量（kg）', before.quantity, after.quantity);
   compareAuditField(changes, '交付日期', before.deliveryDate, after.deliveryDate);
   compareAuditField(changes, '交货状态', before.deliveryStatus, after.deliveryStatus);
   compareAuditField(changes, '执行标准', before.standard, after.standard);
@@ -683,6 +689,9 @@ export class ProcessCardRepository {
     this.sqlite.exec(schema);
     this.ensureWorkflowSchema();
     this.ensureSystemSchema();
+    this.seedDefinitions(false);
+    this.migrateLegacyFormingOperations();
+    this.migrateLegacyCustomOperations();
     this.seedDefinitions();
     this.seedDepartmentOptions();
     if (appConfig.seedDefaultUsers) {
@@ -705,6 +714,8 @@ export class ProcessCardRepository {
 
   private ensureWorkflowSchema() {
     this.ensureColumn('process_cards', 'status', "TEXT NOT NULL DEFAULT 'draft'");
+    this.ensureColumn('process_cards', 'length_tolerance', "TEXT NOT NULL DEFAULT ''");
+    this.ensureColumn('card_operations', 'custom_name', "TEXT NOT NULL DEFAULT ''");
     this.ensureColumn('process_cards', 'current_step', "TEXT NOT NULL DEFAULT 'prepare'");
     this.ensureColumn('process_cards', 'current_handler_user_id', "TEXT NOT NULL DEFAULT ''");
     this.ensureColumn('process_cards', 'created_by_user_id', "TEXT NOT NULL DEFAULT ''");
@@ -795,8 +806,23 @@ export class ProcessCardRepository {
     }
   }
 
-  private seedDefinitions() {
+  private seedDefinitions(pruneRemoved = true) {
     this.sqlite.transaction(() => {
+      const activeCodes = PROCESS_CATALOG.map((definition) => definition.code);
+
+      if (pruneRemoved) {
+        this.sqlite.run(
+          `DELETE FROM operation_option_definitions WHERE operation_code NOT IN (${activeCodes
+            .map(() => '?')
+            .join(', ')})`,
+          activeCodes,
+        );
+        this.sqlite.run(
+          `DELETE FROM operation_definitions WHERE code NOT IN (${activeCodes.map(() => '?').join(', ')})`,
+          activeCodes,
+        );
+      }
+
       for (const definition of PROCESS_CATALOG) {
         this.sqlite.run(
           `
@@ -836,6 +862,144 @@ export class ProcessCardRepository {
             [option.operationCode, option.optionCode, option.label, option.sortOrder],
           );
         }
+      }
+    });
+  }
+
+  private migrateLegacyFormingOperations() {
+    const legacyOperations = this.sqlite.query<
+      OperationRow & {
+        card_id: string;
+      }
+    >(
+      `
+        SELECT
+          id,
+          card_id,
+          operation_code,
+          sort_order,
+          enabled,
+          custom_name,
+          department,
+          special_characteristic,
+          delivery_time,
+          other_requirements,
+          remark
+        FROM card_operations
+        WHERE operation_code = 'forming'
+      `,
+    );
+
+    if (legacyOperations.length === 0) {
+      return;
+    }
+
+    this.sqlite.transaction(() => {
+      for (const operation of legacyOperations) {
+        const selectedOptions = this.sqlite.query<SelectedOptionRow>(
+          'SELECT card_operation_id, option_code FROM card_operation_selected_options WHERE card_operation_id = ?',
+          [operation.id],
+        );
+        const details = this.sqlite.query<DetailRow>(
+          `
+            SELECT id, card_operation_id, detail_seq, detail_type, display_text, params_json
+            FROM operation_details
+            WHERE card_operation_id = ?
+            ORDER BY detail_seq ASC
+          `,
+          [operation.id],
+        );
+
+        const hasRolling = selectedOptions.some((option) => option.option_code === 'forming-1');
+        const hasForging = selectedOptions.some((option) => option.option_code === 'forming-2');
+        const targetCodes =
+          hasRolling && hasForging ? ['rolling', 'forging'] : [hasForging ? 'forging' : 'rolling'];
+
+        this.sqlite.run('DELETE FROM card_operation_selected_options WHERE card_operation_id = ?', [operation.id]);
+        this.sqlite.run('UPDATE card_operations SET operation_code = ? WHERE id = ?', [
+          targetCodes[0],
+          operation.id,
+        ]);
+
+        if (targetCodes.length > 1) {
+          const duplicatedOperationId = randomUUID();
+          this.sqlite.run(
+            `
+              INSERT INTO card_operations
+              (id, card_id, operation_code, sort_order, enabled, custom_name, department, special_characteristic, delivery_time, other_requirements, remark)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `,
+            [
+              duplicatedOperationId,
+              operation.card_id,
+              targetCodes[1],
+              operation.sort_order + 5,
+              operation.enabled,
+              operation.custom_name,
+              operation.department,
+              operation.special_characteristic,
+              operation.delivery_time,
+              operation.other_requirements,
+              operation.remark,
+            ],
+          );
+
+          for (const detail of details) {
+            this.sqlite.run(
+              `
+                INSERT INTO operation_details
+                (id, card_operation_id, detail_seq, detail_type, display_text, params_json)
+                VALUES (?, ?, ?, ?, ?, ?)
+              `,
+              [
+                randomUUID(),
+                duplicatedOperationId,
+                detail.detail_seq,
+                detail.detail_type,
+                detail.display_text,
+                detail.params_json,
+              ],
+            );
+          }
+        }
+      }
+    });
+  }
+
+  private migrateLegacyCustomOperations() {
+    const legacyOperations = this.sqlite.query<
+      OperationRow & {
+        card_id: string;
+      }
+    >(
+      `
+        SELECT
+          id,
+          card_id,
+          operation_code,
+          sort_order,
+          enabled,
+          custom_name,
+          department,
+          special_characteristic,
+          delivery_time,
+          other_requirements,
+          remark
+        FROM card_operations
+        WHERE operation_code = 'custom-operation'
+      `,
+    );
+
+    if (legacyOperations.length === 0) {
+      return;
+    }
+
+    this.sqlite.transaction(() => {
+      for (const operation of legacyOperations) {
+        this.sqlite.run(
+          'UPDATE card_operations SET operation_code = ?, custom_name = ? WHERE id = ?',
+          ['custom-operation-1', operation.custom_name || '自定义工序', operation.id],
+        );
       }
     });
   }
@@ -2153,6 +2317,7 @@ export class ProcessCardRepository {
       productName: card.product_name,
       material: card.material,
       specification: card.specification,
+      lengthTolerance: card.length_tolerance ?? '',
       quantity: card.quantity,
       deliveryDate: card.delivery_date,
       deliveryStatus: card.delivery_status,
@@ -2211,6 +2376,7 @@ export class ProcessCardRepository {
           operationCode: saved.operation_code,
           sortOrder: saved.sort_order,
           enabled: Boolean(saved.enabled),
+          customName: saved.custom_name || '',
           department: saved.department,
           specialCharacteristic: saved.special_characteristic || '',
           deliveryTime: saved.delivery_time,
@@ -2411,8 +2577,8 @@ export class ProcessCardRepository {
       this.sqlite.run(
         `
           INSERT INTO card_operations
-          (id, card_id, operation_code, sort_order, enabled, department, special_characteristic, delivery_time, other_requirements, remark)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          (id, card_id, operation_code, sort_order, enabled, custom_name, department, special_characteristic, delivery_time, other_requirements, remark)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `,
         [
           operationId,
@@ -2420,6 +2586,7 @@ export class ProcessCardRepository {
           operation.operationCode,
           operation.sortOrder,
           operation.enabled ? 1 : 0,
+          operation.customName,
           operation.department,
           operation.specialCharacteristic,
           operation.deliveryTime,
@@ -2490,7 +2657,7 @@ export class ProcessCardRepository {
           `
             UPDATE process_cards SET
               card_no = ?, plan_number = ?, customer_code = ?, order_date = ?, product_name = ?, material = ?,
-              specification = ?, quantity = ?, delivery_date = ?, delivery_status = ?, standard = ?,
+              specification = ?, length_tolerance = ?, quantity = ?, delivery_date = ?, delivery_status = ?, standard = ?,
               technical_requirements = ?, remark = ?, confirmed_user_id = ?, reviewed_user_id = ?, approved_user_id = ?,
               updated_at = ?
             WHERE id = ?
@@ -2503,6 +2670,7 @@ export class ProcessCardRepository {
             payload.productName,
             payload.material,
             payload.specification,
+            payload.lengthTolerance,
             payload.quantity,
             payload.deliveryDate,
             payload.deliveryStatus,
@@ -2524,12 +2692,12 @@ export class ProcessCardRepository {
         this.sqlite.run(
           `
             INSERT INTO process_cards
-            (id, card_no, plan_number, customer_code, order_date, product_name, material, specification, quantity,
+            (id, card_no, plan_number, customer_code, order_date, product_name, material, specification, length_tolerance, quantity,
              delivery_date, delivery_status, standard, technical_requirements, remark, prepared_by, prepared_date,
              confirmed_by, confirmed_date, reviewed_by, reviewed_date, approved_by, approved_date, status, current_step,
              current_handler_user_id, created_by_user_id, confirmed_user_id, reviewed_user_id, approved_user_id, submitted_at,
              locked_at, version_no, source_card_id, last_return_comment, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           `,
           [
             cardId,
@@ -2540,6 +2708,7 @@ export class ProcessCardRepository {
             payload.productName,
             payload.material,
             payload.specification,
+            payload.lengthTolerance,
             payload.quantity,
             payload.deliveryDate,
             payload.deliveryStatus,

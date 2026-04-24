@@ -39,7 +39,21 @@ export const getSelectedOptionLabels = (definition: OperationDefinition, operati
     .filter((option) => operation.selectedOptionCodes.includes(option.optionCode))
     .map((option) => option.label);
 
+function isCustomOperationCode(code: string) {
+  return code.startsWith('custom-operation');
+}
+
 export const buildPrintCells = (definition: OperationDefinition, operation: CardOperation) => {
+  if (isCustomOperationCode(definition.code)) {
+    return {
+      checkedName: `${filledMark}${operation.customName.trim() || definition.name}`,
+      processLines: [],
+      qualityLines: operation.details.flatMap((detail) =>
+        compactFieldText(definition.fieldConfig, detail.params, detail.detailType),
+      ),
+    };
+  }
+
   if (definition.detailMode === 'multiple') {
     const chosenTypes = operation.details.map((detail) => detail.detailType);
 

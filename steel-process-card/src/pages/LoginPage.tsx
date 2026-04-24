@@ -99,24 +99,6 @@ export function LoginPage() {
                 {showPassword ? (
                   <svg viewBox="0 0 24 24" aria-hidden="true">
                     <path
-                      d="M3 4.5 19.5 21"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="1.8"
-                      strokeLinecap="round"
-                    />
-                    <path
-                      d="M10.6 6.2A10.9 10.9 0 0 1 12 6c5.4 0 9.4 4.6 10 6-.3.7-1.5 2.6-3.4 4.1M14.8 14.9A3.5 3.5 0 0 1 9 12.2M6.3 9.3A15.2 15.2 0 0 0 2 12c.6 1.4 4.6 6 10 6 1.2 0 2.4-.2 3.4-.6"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="1.8"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                ) : (
-                  <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <path
                       d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6-10-6-10-6Z"
                       fill="none"
                       stroke="currentColor"
@@ -130,6 +112,24 @@ export function LoginPage() {
                       fill="none"
                       stroke="currentColor"
                       strokeWidth="1.8"
+                    />
+                  </svg>
+                ) : (
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path
+                      d="M3 4.5 19.5 21"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.8"
+                      strokeLinecap="round"
+                    />
+                    <path
+                      d="M10.6 6.2A10.9 10.9 0 0 1 12 6c5.4 0 9.4 4.6 10 6-.3.7-1.5 2.6-3.4 4.1M14.8 14.9A3.5 3.5 0 0 1 9 12.2M6.3 9.3A15.2 15.2 0 0 0 2 12c.6 1.4 4.6 6 10 6 1.2 0 2.4-.2 3.4-.6"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.8"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
                     />
                   </svg>
                 )}

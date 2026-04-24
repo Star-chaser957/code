@@ -3,6 +3,14 @@ import type { DepartmentOption } from '../../shared/types';
 import { useAuth } from '../auth/AuthProvider';
 import { api } from '../lib/api';
 
+function createClientId() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+
+  return `department-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
 export function SettingsDepartmentsPage() {
   const { isAdmin } = useAuth();
   const [items, setItems] = useState<DepartmentOption[]>([]);
@@ -38,7 +46,7 @@ export function SettingsDepartmentsPage() {
     setItems((current) => [
       ...current,
       {
-        id: crypto.randomUUID(),
+        id: createClientId(),
         label: '',
         sortOrder: current.length + 1,
       },

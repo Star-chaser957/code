@@ -22,6 +22,10 @@ type OperationEditorProps = {
 
 const SPECIAL_CHARACTERISTIC_OPTIONS = ['', '△', 'S', '■'];
 
+function isCustomOperationCode(code: string) {
+  return code.startsWith('custom-operation');
+}
+
 function getVisibleFields(definition: OperationDefinition, detail: OperationDetail) {
   return definition.fieldConfig.filter((field) => {
     if (field.showForDetailTypes && !field.showForDetailTypes.includes(detail.detailType)) {
@@ -101,6 +105,34 @@ function DetailFields({
 }) {
   const visibleFields = getVisibleFields(definition, detail);
 
+  if (isCustomOperationCode(definition.code)) {
+    const productRequirementField = visibleFields[0];
+    if (!productRequirementField) {
+      return null;
+    }
+
+    return (
+      <label className="field field--full">
+        <span>{productRequirementField.label}</span>
+        <textarea
+          className="textarea--large"
+          value={detail.params[productRequirementField.key] ?? ''}
+          disabled={disabled}
+          placeholder={productRequirementField.placeholder ?? `请输入${productRequirementField.label}`}
+          onChange={(event) =>
+            onChange({
+              ...detail,
+              params: {
+                ...detail.params,
+                [productRequirementField.key]: event.target.value,
+              },
+            })
+          }
+        />
+      </label>
+    );
+  }
+
   return (
     <div className="detail-grid">
       {visibleFields.map((field) => (
@@ -164,13 +196,14 @@ export function OperationEditor({
   const selectedOptionCodes = new Set(operation.selectedOptionCodes);
   const departmentListId = `department-options-${definition.code}`;
   const isHeatTreatment = definition.code === 'heat-treatment';
+  const isCustomOperation = isCustomOperationCode(definition.code);
 
   return (
     <section className="operation-card is-enabled">
       <header className="operation-card__header">
         <div>
           <p className="operation-card__code">{definition.code}</p>
-          <h3>{definition.name}</h3>
+          <h3>{isCustomOperation ? operation.customName.trim() || definition.name : definition.name}</h3>
         </div>
 
         <div className="operation-card__actions">
@@ -187,6 +220,18 @@ export function OperationEditor({
       </header>
 
       <div className="panel-grid">
+        {isCustomOperation ? (
+          <label className="field">
+            <span>工序名称</span>
+            <input
+              value={operation.customName}
+              disabled={readOnly}
+              placeholder="请输入工序名称"
+              onChange={(event) => onChange((current) => ({ ...current, customName: event.target.value }))}
+            />
+          </label>
+        ) : null}
+
         <label className="field">
           <span>生产部门</span>
           <input
@@ -203,22 +248,24 @@ export function OperationEditor({
           </datalist>
         </label>
 
-        <label className="field">
-          <span>特殊特性</span>
-          <select
-            value={operation.specialCharacteristic}
-            disabled={readOnly}
-            onChange={(event) =>
-              onChange((current) => ({ ...current, specialCharacteristic: event.target.value }))
-            }
-          >
-            {SPECIAL_CHARACTERISTIC_OPTIONS.map((option) => (
-              <option key={option || 'blank'} value={option}>
-                {option}
-              </option>
-            ))}
-          </select>
-        </label>
+        {!isCustomOperation ? (
+          <label className="field">
+            <span>特殊特性</span>
+            <select
+              value={operation.specialCharacteristic}
+              disabled={readOnly}
+              onChange={(event) =>
+                onChange((current) => ({ ...current, specialCharacteristic: event.target.value }))
+              }
+            >
+              {SPECIAL_CHARACTERISTIC_OPTIONS.map((option) => (
+                <option key={option || 'blank'} value={option}>
+                  {option}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
 
         <label className="field">
           <span>交付时间</span>
@@ -373,15 +420,17 @@ export function OperationEditor({
         </div>
       ) : null}
 
-      <label className="field field--full">
-        <span>其他要求</span>
-        <textarea
-          className="textarea--large"
-          value={operation.otherRequirements}
-          disabled={readOnly}
-          onChange={(event) => onChange((current) => ({ ...current, otherRequirements: event.target.value }))}
-        />
-      </label>
+      {!isCustomOperation ? (
+        <label className="field field--full">
+          <span>其他要求</span>
+          <textarea
+            className="textarea--large"
+            value={operation.otherRequirements}
+            disabled={readOnly}
+            onChange={(event) => onChange((current) => ({ ...current, otherRequirements: event.target.value }))}
+          />
+        </label>
+      ) : null}
     </section>
   );
 }

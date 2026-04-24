@@ -87,5 +87,8 @@ npm run db:migrate:postgres
 
 - [Nginx 模板](d:\code\steel-process-card\deploy\nginx.conf)
 - [systemd 服务模板](d:\code\steel-process-card\deploy\steel-process-card.service)
+- [Docker Compose 模板](d:\code\steel-process-card\deploy\docker-compose.yml)
+- [Docker 重发版脚本](d:\code\steel-process-card\deploy\redeploy-app.sh)
+- [Windows 一键部署脚本](d:\code\steel-process-card\scripts\deploy-to-ubuntu-docker.ps1)
 - [Linux 备份脚本](d:\code\steel-process-card\scripts\backup-db.sh)
 - [Windows 备份脚本](d:\code\steel-process-card\scripts\backup-db.ps1)

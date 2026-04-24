@@ -8,11 +8,22 @@ type PrintTemplateProps = {
   logoSrc?: string;
 };
 
+function withUnit(value: string, unit: 'mm' | 'kg') {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return '';
+  }
+
+  const unitPattern = unit === 'mm' ? /(mm|毫米)/i : /(kg|千克|公斤)/i;
+  return unitPattern.test(trimmed) ? trimmed : `${trimmed}${unit}`;
+}
+
 export function PrintTemplate({
   card,
   definitions,
   logoSrc = '/logo.png',
 }: PrintTemplateProps) {
+  const isCustomOperationCode = (code: string) => code.startsWith('custom-operation');
   const packaging = getPackagingOperation(card);
   const packagingParams = packaging?.details[0]?.params ?? {};
   const enabledDefinitions = definitions.filter((definition) => {
@@ -40,6 +51,14 @@ export function PrintTemplate({
       </header>
 
       <table className="print-meta">
+        <colgroup>
+          <col className="meta-col-label" />
+          <col className="meta-col-value" />
+          <col className="meta-col-label meta-col-label--wide" />
+          <col className="meta-col-value" />
+          <col className="meta-col-label meta-col-label--compact" />
+          <col className="meta-col-value" />
+        </colgroup>
         <tbody>
           <tr>
             <th>计划单号</th>
@@ -52,18 +71,22 @@ export function PrintTemplate({
           <tr>
             <th>产品名称</th>
             <td>{card.productName}</td>
-            <th>材质</th>
-            <td>{card.material}</td>
+            <th>规格及公差（mm）</th>
+            <td>{withUnit(card.specification, 'mm')}</td>
             <th>交付日期</th>
             <td>{card.deliveryDate}</td>
           </tr>
           <tr>
-            <th>规格</th>
-            <td>{card.specification}</td>
-            <th>数量</th>
-            <td>{card.quantity}</td>
+            <th>材质</th>
+            <td>{card.material}</td>
+            <th>长度及公差（mm）</th>
+            <td>{withUnit(card.lengthTolerance, 'mm')}</td>
+            <th>数量（kg）</th>
+            <td>{withUnit(card.quantity, 'kg')}</td>
+          </tr>
+          <tr>
             <th>交货状态</th>
-            <td>{card.deliveryStatus}</td>
+            <td colSpan={5}>{card.deliveryStatus}</td>
           </tr>
           <tr>
             <th>执行标准</th>
@@ -106,19 +129,29 @@ export function PrintTemplate({
                   <strong>{cells.checkedName}</strong>
                 </td>
                 <td>{operation.department}</td>
-                <td>{operation.specialCharacteristic}</td>
-                <td>
-                  {cells.processLines.map((line) => (
-                    <div key={line}>{line}</div>
-                  ))}
-                </td>
-                <td>
-                  {cells.qualityLines.map((line) => (
-                    <div key={line}>{line}</div>
-                  ))}
-                </td>
+                {isCustomOperationCode(definition.code) ? (
+                  <td colSpan={3}>
+                    {cells.qualityLines.map((line) => (
+                      <div key={line}>{line}</div>
+                    ))}
+                  </td>
+                ) : (
+                  <>
+                    <td>{operation.specialCharacteristic}</td>
+                    <td>
+                      {cells.processLines.map((line) => (
+                        <div key={line}>{line}</div>
+                      ))}
+                    </td>
+                    <td>
+                      {cells.qualityLines.map((line) => (
+                        <div key={line}>{line}</div>
+                      ))}
+                    </td>
+                  </>
+                )}
                 <td>{operation.deliveryTime}</td>
-                <td>{operation.otherRequirements}</td>
+                <td>{isCustomOperationCode(definition.code) ? '' : operation.otherRequirements}</td>
               </tr>
             );
           })}

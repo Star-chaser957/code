@@ -5,8 +5,9 @@ import { useAuth } from '../auth/AuthProvider';
 import { api } from '../lib/api';
 
 export function PageShell() {
-  const { isAdmin, logout, user } = useAuth();
+  const { hasWorkflowRole, isAdmin, logout, user } = useAuth();
   const [unreadCount, setUnreadCount] = useState(0);
+  const canCreateCards = hasWorkflowRole('prepare');
   const workflowRoleText = user?.workflowRoles.length
     ? user.workflowRoles.map((roleCode) => WORKFLOW_ROLE_LABELS[roleCode]).join(' / ')
     : '查看';
@@ -84,9 +85,11 @@ export function PageShell() {
             <NavLink to="/cards" end className="nav-link">
               工艺卡列表
             </NavLink>
-            <NavLink to="/cards/new" className="nav-link">
-              新建工艺卡
-            </NavLink>
+            {canCreateCards ? (
+              <NavLink to="/cards/new" className="nav-link">
+                新建工艺卡
+              </NavLink>
+            ) : null}
           </nav>
         </div>
 

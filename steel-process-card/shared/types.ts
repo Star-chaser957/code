@@ -69,6 +69,7 @@ export type CardOperation = {
   operationCode: string;
   sortOrder: number;
   enabled: boolean;
+  customName: string;
   department: string;
   specialCharacteristic: string;
   deliveryTime: string;
@@ -107,6 +108,7 @@ export type ProcessCardPayload = {
   productName: string;
   material: string;
   specification: string;
+  lengthTolerance: string;
   quantity: string;
   deliveryDate: string;
   deliveryStatus: string;
@@ -409,8 +411,9 @@ export const MAIN_INFO_FIELDS: Array<{
   { key: 'productName', label: '产品名称' },
   { key: 'orderDate', label: '接单日期', type: 'date' },
   { key: 'material', label: '材质' },
-  { key: 'specification', label: '规格' },
-  { key: 'quantity', label: '数量' },
+  { key: 'specification', label: '规格及公差（mm）' },
+  { key: 'lengthTolerance', label: '长度及公差（mm）' },
+  { key: 'quantity', label: '数量（kg）' },
   { key: 'deliveryDate', label: '交付日期', type: 'date' },
   { key: 'deliveryStatus', label: '交货状态' },
   { key: 'standard', label: '执行标准', type: 'textarea', large: true },

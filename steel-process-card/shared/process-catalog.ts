@@ -15,6 +15,17 @@ const createOptions = (operationCode: string, options: string[]) =>
     sortOrder: index + 1,
   }));
 
+const shapingFieldConfig = [
+  {
+    key: 'type',
+    label: '类型',
+    inputType: 'select' as const,
+    options: ['圆钢/圆棒', '扁钢', '方钢', '六角钢', '八角钢', '钢管', '等边角钢', '螺纹钢'],
+  },
+  { key: 'diameterOrSideLength', label: '直径/边长（mm）' },
+  { key: 'length', label: '长度（mm）' },
+];
+
 export const PROCESS_CATALOG: OperationDefinition[] = [
   {
     code: 'material-source',
@@ -91,23 +102,24 @@ export const PROCESS_CATALOG: OperationDefinition[] = [
     optionCatalog: createOptions('grinding-repair', ['点修', '全抛', '其他']),
   },
   {
-    code: 'forming',
-    name: '成型',
+    code: 'rolling',
+    name: '轧制',
     defaultOrder: 50,
     detailMode: 'single',
     allowsMultipleDetails: false,
     detailLabel: '产品要求',
-    fieldConfig: [
-      {
-        key: 'type',
-        label: '类型',
-        inputType: 'select',
-        options: ['圆钢/圆棒', '扁钢', '方钢', '六角钢', '八角钢', '钢管', '等边角钢', '螺纹钢'],
-      },
-      { key: 'diameterOrSideLength', label: '直径/边长（mm）' },
-      { key: 'length', label: '长度（mm）' },
-    ],
-    optionCatalog: createOptions('forming', ['轧制', '锻造']),
+    fieldConfig: shapingFieldConfig,
+    optionCatalog: [],
+  },
+  {
+    code: 'forging',
+    name: '锻造',
+    defaultOrder: 55,
+    detailMode: 'single',
+    allowsMultipleDetails: false,
+    detailLabel: '产品要求',
+    fieldConfig: shapingFieldConfig,
+    optionCatalog: [],
   },
   {
     code: 'finishing',
@@ -310,6 +322,36 @@ export const PROCESS_CATALOG: OperationDefinition[] = [
     ]),
   },
   {
+    code: 'custom-operation-1',
+    name: '自定义工序 1',
+    defaultOrder: 185,
+    detailMode: 'single',
+    allowsMultipleDetails: false,
+    detailLabel: '产品要求',
+    fieldConfig: [{ key: 'productRequirement', label: '产品要求', inputType: 'textarea' }],
+    optionCatalog: [],
+  },
+  {
+    code: 'custom-operation-2',
+    name: '自定义工序 2',
+    defaultOrder: 186,
+    detailMode: 'single',
+    allowsMultipleDetails: false,
+    detailLabel: '产品要求',
+    fieldConfig: [{ key: 'productRequirement', label: '产品要求', inputType: 'textarea' }],
+    optionCatalog: [],
+  },
+  {
+    code: 'custom-operation-3',
+    name: '自定义工序 3',
+    defaultOrder: 187,
+    detailMode: 'single',
+    allowsMultipleDetails: false,
+    detailLabel: '产品要求',
+    fieldConfig: [{ key: 'productRequirement', label: '产品要求', inputType: 'textarea' }],
+    optionCatalog: [],
+  },
+  {
     code: 'packaging',
     name: '包装',
     defaultOrder: 190,
@@ -342,6 +384,7 @@ export const createEmptyOperation = (definition: OperationDefinition): CardOpera
   operationCode: definition.code,
   sortOrder: definition.defaultOrder,
   enabled: false,
+  customName: '',
   department: '',
   specialCharacteristic: '',
   deliveryTime: '',
@@ -364,6 +407,7 @@ export const createEmptyProcessCard = (
   productName: '',
   material: '',
   specification: '',
+  lengthTolerance: '',
   quantity: '',
   deliveryDate: '',
   deliveryStatus: '',
@@ -412,7 +456,8 @@ export const createDemoProcessCard = (
   card.productName = '光亮圆棒';
   card.material = '254SMO';
   card.specification = 'Φ28';
-  card.quantity = '800 支';
+  card.lengthTolerance = '3000±5';
+  card.quantity = '800';
   card.deliveryDate = '2026-04-20';
   card.deliveryStatus = '未交货';
   card.standard = '产品技术标准：化学成分按 ASTHA276 标准中 (S31254) 执行';
