@@ -3,7 +3,6 @@ import type {
   OperationDefinition,
   OperationDetail,
   OperationFieldDefinition,
-  ProcessCardPayload,
 } from '../../shared/types';
 
 const filledMark = '■';
@@ -110,6 +109,3 @@ export const buildPrintCells = (definition: OperationDefinition, operation: Card
     ),
   };
 };
-
-export const getPackagingOperation = (card: ProcessCardPayload) =>
-  card.operations.find((item) => item.operationCode === 'packaging' && item.enabled);

@@ -1534,14 +1534,18 @@ a {
   margin-top: 6px;
 }
 
+.print-footer .footer-col-label {
+  width: 11%;
+}
+
+.print-footer .footer-col-value {
+  width: 22.333%;
+}
+
 .print-footer th,
 .print-footer td {
   font-size: 11px;
   padding: 3px 4px;
-}
-
-.print-footer th {
-  width: 9%;
 }
 
 .print-footer td {

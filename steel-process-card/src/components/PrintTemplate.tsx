@@ -1,6 +1,6 @@
 import { CARD_STATUS_LABELS, FIXED_REMARK } from '../../shared/types';
 import type { OperationDefinition, ProcessCardPayload } from '../../shared/types';
-import { buildPrintCells, getPackagingOperation } from '../lib/print';
+import { buildPrintCells } from '../lib/print';
 
 type PrintTemplateProps = {
   card: ProcessCardPayload;
@@ -24,17 +24,9 @@ export function PrintTemplate({
   logoSrc = '/logo.png',
 }: PrintTemplateProps) {
   const isCustomOperationCode = (code: string) => code.startsWith('custom-operation');
-  const packaging = getPackagingOperation(card);
-  const packagingParams = packaging?.details[0]?.params ?? {};
-  const enabledDefinitions = definitions.filter((definition) => {
-    if (definition.code === 'packaging') {
-      return false;
-    }
-
-    return card.operations.some(
-      (operation) => operation.operationCode === definition.code && operation.enabled,
-    );
-  });
+  const enabledDefinitions = definitions.filter((definition) =>
+    card.operations.some((operation) => operation.operationCode === definition.code && operation.enabled),
+  );
 
   return (
     <div className="print-page">
@@ -159,26 +151,22 @@ export function PrintTemplate({
       </table>
 
       <table className="print-footer">
+        <colgroup>
+          <col className="footer-col-label" />
+          <col className="footer-col-value" />
+          <col className="footer-col-label" />
+          <col className="footer-col-value" />
+          <col className="footer-col-label" />
+          <col className="footer-col-value" />
+        </colgroup>
         <tbody>
-          {packaging ? (
-            <tr>
-              <th>包装</th>
-              <td>■包装</td>
-              <th>包装方式</th>
-              <td>{packagingParams.packagingMethod ?? ''}</td>
-              <th>防护要求</th>
-              <td>{packagingParams.protectionRequirement ?? ''}</td>
-              <th>包装质量</th>
-              <td>{packagingParams.packageQuality ?? ''}</td>
-            </tr>
-          ) : null}
           <tr>
             <th>编制/日期</th>
-            <td colSpan={2}>
+            <td>
               {card.preparedBy} {card.preparedDate}
             </td>
             <th>确认/日期</th>
-            <td colSpan={2}>
+            <td>
               {card.confirmedBy} {card.confirmedDate}
             </td>
             <th>审核/日期</th>
@@ -188,7 +176,7 @@ export function PrintTemplate({
           </tr>
           <tr>
             <th>批准/日期</th>
-            <td colSpan={2}>
+            <td>
               {card.approvedBy} {card.approvedDate}
             </td>
             <th>备注</th>
