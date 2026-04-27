@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { FastifyPluginAsync } from 'fastify';
-import type { LoginRequest } from '../../shared/types';
+import type { LoginRequest, UserOwnPasswordChangeRequest } from '../../shared/types';
 import { getBearerToken, requireAuth } from '../auth';
 import { repository } from '../db/repository';
 
@@ -51,5 +51,22 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
     }
 
     return { success: true };
+  });
+
+  fastify.post('/password', async (request, reply) => {
+    const user = await requireAuth(request, reply);
+    if (!user) {
+      return;
+    }
+
+    try {
+      const payload = request.body as UserOwnPasswordChangeRequest;
+      return await repository.changeOwnPassword(payload, user, request.ip);
+    } catch (error) {
+      reply.code(400);
+      return {
+        message: error instanceof Error ? error.message : '修改密码失败，请稍后再试。',
+      };
+    }
   });
 };

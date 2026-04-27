@@ -17,6 +17,7 @@ import type {
   UserAccountCreateRequest,
   UserAccountUpdateRequest,
   UserActiveToggleRequest,
+  UserOwnPasswordChangeRequest,
   UserPasswordResetRequest,
   UserSummary,
 } from '../../shared/types';
@@ -94,6 +95,12 @@ export const api = {
   logout: async () =>
     request<{ success: boolean }>('/api/auth/logout', {
       method: 'POST',
+    }),
+
+  changeOwnPassword: async (payload: UserOwnPasswordChangeRequest) =>
+    request<{ success: boolean }>('/api/auth/password', {
+      method: 'POST',
+      body: JSON.stringify(payload),
     }),
 
   getOperationDefinitions: async () =>

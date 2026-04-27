@@ -40,6 +40,7 @@ import type {
   UserAccount,
   UserAccountCreateRequest,
   UserAccountUpdateRequest,
+  UserOwnPasswordChangeRequest,
   UserSummary,
   UserPasswordResetRequest,
   WorkflowRole,
@@ -135,6 +136,11 @@ const userAccountUpdateSchema = z.object({
 
 const userPasswordResetSchema = z.object({
   password: z.string().min(6),
+});
+
+const userOwnPasswordChangeSchema = z.object({
+  currentPassword: z.string().min(1),
+  newPassword: z.string().min(6),
 });
 
 const userActiveToggleSchema = z.object({
@@ -1994,6 +2000,54 @@ export class ProcessCardRepository {
         targetDisplayName: existing.display_name,
         summary: `重置密码：${existing.display_name}（${existing.username}）`,
         detailText: '管理员重置了登录密码。',
+        ipAddress,
+      });
+    });
+
+    await this.sqlite.persist();
+    return { success: true };
+  }
+
+  async changeOwnPassword(input: UserOwnPasswordChangeRequest, actor: AuthUser, ipAddress = '') {
+    const payload = userOwnPasswordChangeSchema.parse(input);
+
+    if (payload.currentPassword === payload.newPassword) {
+      throw new Error('新密码不能和当前密码相同。');
+    }
+
+    const [existing] = this.sqlite.query<UserRow>(
+      'SELECT id, username, display_name, password_hash, role, is_active FROM users WHERE id = ?',
+      [actor.id],
+    );
+
+    if (!existing?.password_hash) {
+      throw new Error('账号不存在。');
+    }
+
+    if (!existing.is_active) {
+      throw new Error('账号已停用，不能修改密码。');
+    }
+
+    if (!this.verifyPassword(payload.currentPassword, existing.password_hash)) {
+      throw new Error('当前密码不正确，请重新输入。');
+    }
+
+    this.sqlite.transaction(() => {
+      this.sqlite.run('UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?', [
+        this.hashPassword(payload.newPassword),
+        new Date().toISOString(),
+        actor.id,
+      ]);
+      this.writeAuditLog({
+        category: 'user',
+        entityType: 'user',
+        entityId: actor.id,
+        action: 'change_own_password',
+        actor,
+        targetUserId: actor.id,
+        targetDisplayName: existing.display_name,
+        summary: `用户修改密码：${existing.display_name}（${existing.username}）`,
+        detailText: '用户修改了自己的登录密码。',
         ipAddress,
       });
     });

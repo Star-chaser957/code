@@ -230,6 +230,11 @@ export type UserPasswordResetRequest = {
   password: string;
 };
 
+export type UserOwnPasswordChangeRequest = {
+  currentPassword: string;
+  newPassword: string;
+};
+
 export type UserActiveToggleRequest = {
   isActive: boolean;
 };

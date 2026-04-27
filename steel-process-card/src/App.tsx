@@ -8,6 +8,7 @@ import { LoginPage } from './pages/LoginPage';
 import { MessagesPage } from './pages/MessagesPage';
 import { PrintPage } from './pages/PrintPage';
 import { AuditLogPage } from './pages/AuditLogPage';
+import { AccountPasswordPage } from './pages/AccountPasswordPage';
 import { SettingsDepartmentsPage } from './pages/SettingsDepartmentsPage';
 import { UserManagementPage } from './pages/UserManagementPage';
 
@@ -31,6 +32,7 @@ export default function App() {
       >
         <Route path="/" element={<DashboardPage />} />
         <Route path="/messages" element={<MessagesPage />} />
+        <Route path="/account/password" element={<AccountPasswordPage />} />
         <Route path="/cards" element={<ListPage />} />
         <Route path="/cards/new" element={<EditorPage />} />
         <Route path="/cards/:id/edit" element={<EditorPage />} />
