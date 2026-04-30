@@ -1531,6 +1531,11 @@ a {
   width: 115px;
 }
 
+.print-brand span {
+  font-size: 13px;
+  line-height: 1.35;
+}
+
 .print-header__spacer {
   width: 115px;
   flex: 0 0 115px;
@@ -1617,15 +1622,15 @@ a {
 }
 
 .col-method {
-  width: 16%;
+  width: 12%;
 }
 
 .col-quality {
-  width: 18%;
+  width: 20%;
 }
 
 .col-other {
-  width: 30%;
+  width: 32%;
 }
 
 .print-footer {
