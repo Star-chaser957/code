@@ -328,8 +328,6 @@ export function ListPage() {
                   </td>
                   <td>
                     {item.planNumber}
-                    <br />
-                    V{item.versionNo}
                   </td>
                   <td>
                     <strong>{item.productName}</strong>
