@@ -328,7 +328,10 @@ export const PROCESS_CATALOG: OperationDefinition[] = [
     detailMode: 'single',
     allowsMultipleDetails: false,
     detailLabel: '产品要求',
-    fieldConfig: [{ key: 'productRequirement', label: '产品要求', inputType: 'textarea' }],
+    fieldConfig: [
+      { key: 'processManufacturing', label: '工艺/制造', inputType: 'textarea' },
+      { key: 'productRequirement', label: '产品要求', inputType: 'textarea' },
+    ],
     optionCatalog: [],
   },
   {
@@ -338,7 +341,10 @@ export const PROCESS_CATALOG: OperationDefinition[] = [
     detailMode: 'single',
     allowsMultipleDetails: false,
     detailLabel: '产品要求',
-    fieldConfig: [{ key: 'productRequirement', label: '产品要求', inputType: 'textarea' }],
+    fieldConfig: [
+      { key: 'processManufacturing', label: '工艺/制造', inputType: 'textarea' },
+      { key: 'productRequirement', label: '产品要求', inputType: 'textarea' },
+    ],
     optionCatalog: [],
   },
   {
@@ -348,7 +354,10 @@ export const PROCESS_CATALOG: OperationDefinition[] = [
     detailMode: 'single',
     allowsMultipleDetails: false,
     detailLabel: '产品要求',
-    fieldConfig: [{ key: 'productRequirement', label: '产品要求', inputType: 'textarea' }],
+    fieldConfig: [
+      { key: 'processManufacturing', label: '工艺/制造', inputType: 'textarea' },
+      { key: 'productRequirement', label: '产品要求', inputType: 'textarea' },
+    ],
     optionCatalog: [],
   },
   {

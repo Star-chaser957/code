@@ -106,7 +106,8 @@ function DetailFields({
   const visibleFields = getVisibleFields(definition, detail);
 
   if (isCustomOperationCode(definition.code)) {
-    const productRequirementField = visibleFields[0];
+    const productRequirementField = visibleFields.find((field) => field.key === 'productRequirement');
+
     if (!productRequirementField) {
       return null;
     }
@@ -197,6 +198,26 @@ export function OperationEditor({
   const departmentListId = `department-options-${definition.code}`;
   const isHeatTreatment = definition.code === 'heat-treatment';
   const isCustomOperation = isCustomOperationCode(definition.code);
+  const customProcessManufacturing = operation.details[0]?.params.processManufacturing ?? '';
+  const updateFirstDetailParam = (key: string, value: string) =>
+    onChange((current) => {
+      const details = current.details.length > 0 ? current.details : [createEmptyDetail(definition)];
+
+      return {
+        ...current,
+        details: details.map((detail, index) =>
+          index === 0
+            ? {
+                ...detail,
+                params: {
+                  ...detail.params,
+                  [key]: value,
+                },
+              }
+            : detail,
+        ),
+      };
+    });
 
   return (
     <section className="operation-card is-enabled">
@@ -248,24 +269,22 @@ export function OperationEditor({
           </datalist>
         </label>
 
-        {!isCustomOperation ? (
-          <label className="field">
-            <span>特殊特性</span>
-            <select
-              value={operation.specialCharacteristic}
-              disabled={readOnly}
-              onChange={(event) =>
-                onChange((current) => ({ ...current, specialCharacteristic: event.target.value }))
-              }
-            >
-              {SPECIAL_CHARACTERISTIC_OPTIONS.map((option) => (
-                <option key={option || 'blank'} value={option}>
-                  {option}
-                </option>
-              ))}
-            </select>
-          </label>
-        ) : null}
+        <label className="field">
+          <span>特殊特性</span>
+          <select
+            value={operation.specialCharacteristic}
+            disabled={readOnly}
+            onChange={(event) =>
+              onChange((current) => ({ ...current, specialCharacteristic: event.target.value }))
+            }
+          >
+            {SPECIAL_CHARACTERISTIC_OPTIONS.map((option) => (
+              <option key={option || 'blank'} value={option}>
+                {option}
+              </option>
+            ))}
+          </select>
+        </label>
 
         <label className="field">
           <span>交付时间</span>
@@ -276,6 +295,19 @@ export function OperationEditor({
             onChange={(event) => onChange((current) => ({ ...current, deliveryTime: event.target.value }))}
           />
         </label>
+
+        {isCustomOperation ? (
+          <label className="field field--full">
+            <span>工艺/制造</span>
+            <textarea
+              className="textarea--large"
+              value={customProcessManufacturing}
+              disabled={readOnly}
+              placeholder="请输入工艺/制造"
+              onChange={(event) => updateFirstDetailParam('processManufacturing', event.target.value)}
+            />
+          </label>
+        ) : null}
       </div>
 
       {definition.optionCatalog.length > 0 ? (
@@ -420,17 +452,15 @@ export function OperationEditor({
         </div>
       ) : null}
 
-      {!isCustomOperation ? (
-        <label className="field field--full">
-          <span>其他要求</span>
-          <textarea
-            className="textarea--large"
-            value={operation.otherRequirements}
-            disabled={readOnly}
-            onChange={(event) => onChange((current) => ({ ...current, otherRequirements: event.target.value }))}
-          />
-        </label>
-      ) : null}
+      <label className="field field--full">
+        <span>其他要求</span>
+        <textarea
+          className="textarea--large"
+          value={operation.otherRequirements}
+          disabled={readOnly}
+          onChange={(event) => onChange((current) => ({ ...current, otherRequirements: event.target.value }))}
+        />
+      </label>
     </section>
   );
 }

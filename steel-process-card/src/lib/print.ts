@@ -44,12 +44,17 @@ function isCustomOperationCode(code: string) {
 
 export const buildPrintCells = (definition: OperationDefinition, operation: CardOperation) => {
   if (isCustomOperationCode(definition.code)) {
+    const customProcessLines = operation.details
+      .map((detail) => detail.params.processManufacturing?.trim())
+      .filter((value): value is string => Boolean(value));
+    const customQualityLines = operation.details
+      .map((detail) => detail.params.productRequirement?.trim())
+      .filter((value): value is string => Boolean(value));
+
     return {
       checkedName: `${filledMark}${operation.customName.trim() || definition.name}`,
-      processLines: [],
-      qualityLines: operation.details.flatMap((detail) =>
-        compactFieldText(definition.fieldConfig, detail.params, detail.detailType),
-      ),
+      processLines: customProcessLines.length > 0 ? customProcessLines : ['/'],
+      qualityLines: customQualityLines,
     };
   }
 

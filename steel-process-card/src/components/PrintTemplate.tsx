@@ -23,10 +23,10 @@ export function PrintTemplate({
   definitions,
   logoSrc = '/logo.png',
 }: PrintTemplateProps) {
-  const isCustomOperationCode = (code: string) => code.startsWith('custom-operation');
-  const enabledDefinitions = definitions.filter((definition) =>
-    card.operations.some((operation) => operation.operationCode === definition.code && operation.enabled),
-  );
+  const definitionMap = new Map(definitions.map((definition) => [definition.code, definition]));
+  const enabledOperations = [...card.operations]
+    .filter((operation) => operation.enabled)
+    .sort((left, right) => left.sortOrder - right.sortOrder);
 
   return (
     <div className="print-page">
@@ -104,12 +104,10 @@ export function PrintTemplate({
           </tr>
         </thead>
         <tbody>
-          {enabledDefinitions.map((definition) => {
-            const operation = card.operations.find(
-              (item) => item.operationCode === definition.code && item.enabled,
-            );
+          {enabledOperations.map((operation) => {
+            const definition = definitionMap.get(operation.operationCode);
 
-            if (!operation) {
+            if (!definition) {
               return null;
             }
 
@@ -121,29 +119,19 @@ export function PrintTemplate({
                   <strong>{cells.checkedName}</strong>
                 </td>
                 <td>{operation.department}</td>
-                {isCustomOperationCode(definition.code) ? (
-                  <td colSpan={3}>
-                    {cells.qualityLines.map((line) => (
-                      <div key={line}>{line}</div>
-                    ))}
-                  </td>
-                ) : (
-                  <>
-                    <td>{operation.specialCharacteristic}</td>
-                    <td>
-                      {cells.processLines.map((line) => (
-                        <div key={line}>{line}</div>
-                      ))}
-                    </td>
-                    <td>
-                      {cells.qualityLines.map((line) => (
-                        <div key={line}>{line}</div>
-                      ))}
-                    </td>
-                  </>
-                )}
+                <td>{operation.specialCharacteristic}</td>
+                <td>
+                  {cells.processLines.map((line) => (
+                    <div key={line}>{line}</div>
+                  ))}
+                </td>
+                <td>
+                  {cells.qualityLines.map((line) => (
+                    <div key={line}>{line}</div>
+                  ))}
+                </td>
                 <td>{operation.deliveryTime}</td>
-                <td>{isCustomOperationCode(definition.code) ? '' : operation.otherRequirements}</td>
+                <td>{operation.otherRequirements}</td>
               </tr>
             );
           })}
