@@ -5,6 +5,10 @@ dist
 .env
 .env.local
 .env.production.local
+deploy/.env.docker
+deploy/process_card.dump
+deploy/docker-data
+deploy/docker-backups
 server/data/*.sqlite
 _backend_out.txt
 _backend_err.txt
@@ -13,3 +17,5 @@ _frontend_err.txt
 _server_out.txt
 _server_err.txt
 backups
+*.tar
+*.tgz
