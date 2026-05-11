@@ -19,7 +19,7 @@ const shapingFieldConfig = [
   {
     key: 'type',
     label: '类型',
-    inputType: 'select' as const,
+    inputType: 'combo' as const,
     options: ['圆钢/圆棒', '扁钢', '方钢', '六角钢', '八角钢', '钢管', '等边角钢', '螺纹钢'],
   },
   { key: 'diameterOrSideLength', label: '直径/边长（mm）' },

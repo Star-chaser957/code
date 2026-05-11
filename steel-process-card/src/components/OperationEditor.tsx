@@ -45,6 +45,7 @@ function renderFieldInput(
   detail: OperationDetail,
   disabled: boolean,
   onChange: (detail: OperationDetail) => void,
+  inputIdPrefix: string,
 ) {
   const value = detail.params[field.key] ?? '';
   const placeholder = field.placeholder ?? `请输入${field.label}`;
@@ -68,6 +69,27 @@ function renderFieldInput(
           </option>
         ))}
       </select>
+    );
+  }
+
+  if (field.inputType === 'combo') {
+    const listId = `${inputIdPrefix}-options`;
+
+    return (
+      <>
+        <input
+          list={listId}
+          value={value}
+          disabled={disabled}
+          placeholder={placeholder}
+          onChange={(event) => updateValue(event.target.value)}
+        />
+        <datalist id={listId}>
+          {(field.options ?? []).map((option) => (
+            <option key={option} value={option} />
+          ))}
+        </datalist>
+      </>
     );
   }
 
@@ -139,7 +161,7 @@ function DetailFields({
       {visibleFields.map((field) => (
         <label className="field" key={`${detail.detailSeq}-${field.key}`}>
           <span>{field.label}</span>
-          {renderFieldInput(field, detail, disabled, onChange)}
+          {renderFieldInput(field, detail, disabled, onChange, `${definition.code}-${detail.detailSeq}-${field.key}`)}
         </label>
       ))}
     </div>

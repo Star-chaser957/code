@@ -32,7 +32,7 @@ export type OperationFieldDefinition = {
   label: string;
   unit?: string;
   placeholder?: string;
-  inputType?: 'text' | 'select' | 'textarea';
+  inputType?: 'text' | 'select' | 'combo' | 'textarea';
   options?: string[];
   showForDetailTypes?: string[];
   hideForDetailTypes?: string[];
