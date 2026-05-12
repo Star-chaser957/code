@@ -355,8 +355,7 @@ export type ApprovalActionRequest = {
   comment?: string;
 };
 
-export const FIXED_REMARK =
-  '适用于钢棒生产。特性符号：关键特性S，重要特性■，过程特性△。';
+export const FIXED_REMARK = '特性符号：关键特性S，重要特性■，过程特性△。';
 
 export const DEFAULT_DEPARTMENT_OPTIONS = [
   '炼钢车间',

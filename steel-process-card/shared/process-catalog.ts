@@ -298,7 +298,7 @@ export const PROCESS_CATALOG: OperationDefinition[] = [
     allowsMultipleDetails: false,
     detailLabel: '产品要求',
     fieldConfig: [{ key: 'defectLevel', label: '缺陷等级' }],
-    optionCatalog: createOptions('testing', ['UT（手持/自动）', '其他']),
+    optionCatalog: createOptions('testing', ['UT（手持）', 'UT（自动）', '其他']),
   },
   {
     code: 'inspection',
