@@ -5,7 +5,7 @@ import type {
   OperationFieldDefinition,
 } from '../../shared/types';
 
-const filledMark = '☑';
+const filledMark = '■';
 const emptyMark = '□';
 
 function isFieldVisible(field: OperationFieldDefinition, detail: OperationDetail) {
