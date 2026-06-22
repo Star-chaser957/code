@@ -2601,6 +2601,8 @@ export class ProcessCardRepository {
           sourceCardId: card.id,
           productName: payload.productName,
           planNumber: payload.planNumber,
+          customerCode: payload.customerCode,
+          material: payload.material,
           updatedAt: payload.updatedAt ?? card.updated_at,
           operations: payload.operations.map((operation) => ({
             ...operation,

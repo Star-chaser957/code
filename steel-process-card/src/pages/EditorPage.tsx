@@ -657,13 +657,13 @@ export function EditorPage() {
                       <select value={selectedPrefillId} onChange={(event) => setSelectedPrefillId(event.target.value)}>
                         {prefillCandidates.map((item) => (
                           <option key={item.sourceCardId} value={item.sourceCardId}>
-                            {item.planNumber} | {new Date(item.updatedAt).toLocaleString('zh-CN')}
+                            {item.material || '未填写材质'} | 客户代码：{item.customerCode || '未填写'}
                           </option>
                         ))}
                       </select>
                     </label>
 
-                    <button type="button" className="button" onClick={handleApplyPrefill}>
+                    <button type="button" className="button button--primary" onClick={handleApplyPrefill}>
                       带入所选工序配置
                     </button>
                   </div>

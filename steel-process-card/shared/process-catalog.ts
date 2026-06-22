@@ -184,6 +184,13 @@ export const PROCESS_CATALOG: OperationDefinition[] = [
         hideForDetailTypes: ['其他'],
       },
       {
+        key: 'needsStraightening',
+        label: '是否矫直',
+        inputType: 'select',
+        options: ['是', '否'],
+        showForDetailTypes: ['固溶'],
+      },
+      {
         key: 'otherRequirement',
         label: '其他要求',
         inputType: 'textarea',

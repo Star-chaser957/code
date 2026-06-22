@@ -191,6 +191,8 @@ export type ProductPrefillCandidate = {
   sourceCardId: string;
   productName: string;
   planNumber: string;
+  customerCode: string;
+  material: string;
   updatedAt: string;
   operations: CardOperation[];
 };
