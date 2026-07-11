@@ -155,6 +155,8 @@ export type ProcessCardListFilters = {
   operationCode?: string;
   heatTreatmentType?: string;
   status?: CardWorkflowStatus | '';
+  sortBy?: 'planNumber' | 'productName' | 'deliveryDate' | 'status' | 'updatedAt';
+  sortDirection?: 'asc' | 'desc';
 };
 
 export type ProcessCardListItem = {

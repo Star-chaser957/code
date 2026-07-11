@@ -2498,6 +2498,16 @@ export class ProcessCardRepository {
       params.push(filters.heatTreatmentType.trim());
     }
 
+    const sortColumns: Record<NonNullable<ProcessCardListFilters['sortBy']>, string> = {
+      planNumber: 'c.plan_number',
+      productName: 'c.product_name',
+      deliveryDate: 'c.delivery_date',
+      status: 'c.status',
+      updatedAt: 'c.updated_at',
+    };
+    const sortColumn = sortColumns[filters.sortBy ?? 'updatedAt'];
+    const sortDirection = filters.sortDirection === 'asc' ? 'ASC' : 'DESC';
+
     const rows = this.sqlite.query<
       CardRow & {
         current_handler_name: string;
@@ -2517,7 +2527,7 @@ export class ProcessCardRepository {
         LEFT JOIN operation_details od ON od.card_operation_id = co.id
         WHERE ${whereClauses.join(' AND ')}
         GROUP BY c.id
-        ORDER BY c.updated_at DESC
+        ORDER BY ${sortColumn} ${sortDirection}, c.updated_at DESC
       `,
       params,
     );

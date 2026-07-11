@@ -242,7 +242,7 @@ export function OperationEditor({
     });
 
   return (
-    <section className="operation-card is-enabled">
+    <section className="operation-card is-enabled" id={`operation-${definition.code}`}>
       <header className="operation-card__header">
         <div>
           <p className="operation-card__code">{definition.code}</p>

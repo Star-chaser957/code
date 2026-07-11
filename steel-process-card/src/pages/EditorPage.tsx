@@ -543,6 +543,16 @@ export function EditorPage() {
         </div>
       </header>
 
+      {!showApprovalPreview ? (
+        <nav className="editor-section-nav" aria-label="工艺卡填写目录">
+          <a href="#main-info">主信息</a>
+          <a href="#operation-picker">工序启用</a>
+          <a href="#operation-details">工序填写</a>
+          <a href="#workflow-signatures">流程人员</a>
+          <a href="#editor-actions">提交操作</a>
+        </nav>
+      ) : null}
+
       {message ? <div className="state">{message}</div> : null}
       {error ? <div className="state state--error">{error}</div> : null}
 
@@ -605,7 +615,7 @@ export function EditorPage() {
         </>
       ) : (
         <>
-          <section className="panel panel--compact operation-panel">
+          <section className="panel panel--compact operation-panel" id="main-info">
             <div className="panel__header">
               <h3>主信息</h3>
             </div>
@@ -672,7 +682,7 @@ export function EditorPage() {
             ) : null}
           </section>
 
-          <section className="panel panel--compact operation-panel">
+          <section className="panel panel--compact operation-panel" id="operation-picker">
             <div className="panel__header">
               <div>
                 <h3>工序启用</h3>
@@ -760,7 +770,7 @@ export function EditorPage() {
             </div>
           </section>
 
-          <section className="stack stack--compact">
+          <section className="stack stack--compact" id="operation-details">
             {enabledOperations.length === 0 ? (
               <div className="state">请先选择需要启用的工序，已启用工序会显示在这里供你填写。</div>
             ) : null}
@@ -796,7 +806,7 @@ export function EditorPage() {
       )}
 
       {!showApprovalPreview ? (
-        <section className="panel panel--compact">
+        <section className="panel panel--compact" id="workflow-signatures">
           <div className="panel__header">
             <h3>流程与签字</h3>
             <span>签字信息由流程动作自动回填，不再手工编辑。</span>
@@ -916,7 +926,7 @@ export function EditorPage() {
             )}
           </section>
 
-          <section className="panel panel--compact page-actions">
+          <section className="panel panel--compact page-actions page-actions--sticky" id="editor-actions">
             <div className="page-actions__inner">
               <div>
                 <h3>操作</h3>

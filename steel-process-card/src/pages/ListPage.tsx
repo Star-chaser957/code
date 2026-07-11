@@ -31,6 +31,8 @@ export function ListPage() {
     operationCode: '',
     heatTreatmentType: '',
     status: '',
+    sortBy: 'updatedAt',
+    sortDirection: 'desc',
   });
 
   const deferredKeyword = useDeferredValue(filters.keyword ?? '');
@@ -74,7 +76,20 @@ export function ListPage() {
     filters.productName,
     filters.specification,
     filters.status,
+    filters.sortBy,
+    filters.sortDirection,
   ]);
+
+  const changeSort = (sortBy: NonNullable<ProcessCardListFilters['sortBy']>) => {
+    setFilters((current) => ({
+      ...current,
+      sortBy,
+      sortDirection: current.sortBy === sortBy && current.sortDirection === 'asc' ? 'desc' : 'asc',
+    }));
+  };
+
+  const sortMark = (sortBy: NonNullable<ProcessCardListFilters['sortBy']>) =>
+    filters.sortBy === sortBy ? (filters.sortDirection === 'asc' ? '↑' : '↓') : '↕';
 
   const heatTreatmentOptions = useMemo(
     () => definitions.find((item) => item.code === 'heat-treatment')?.optionCatalog ?? [],
@@ -281,6 +296,28 @@ export function ListPage() {
               ))}
             </select>
           </label>
+
+          <label className="field">
+            <span>排序方式</span>
+            <select
+              value={`${filters.sortBy}-${filters.sortDirection}`}
+              onChange={(event) => {
+                const [sortBy, sortDirection] = event.target.value.split('-') as [
+                  NonNullable<ProcessCardListFilters['sortBy']>,
+                  NonNullable<ProcessCardListFilters['sortDirection']>,
+                ];
+                setFilters((current) => ({ ...current, sortBy, sortDirection }));
+              }}
+            >
+              <option value="updatedAt-desc">最近更新优先</option>
+              <option value="updatedAt-asc">最早更新优先</option>
+              <option value="planNumber-asc">计划单号升序</option>
+              <option value="planNumber-desc">计划单号降序</option>
+              <option value="productName-asc">产品名称升序</option>
+              <option value="deliveryDate-asc">交付日期最近优先</option>
+              <option value="deliveryDate-desc">交付日期最晚优先</option>
+            </select>
+          </label>
         </div>
       </section>
 
@@ -294,7 +331,7 @@ export function ListPage() {
         {batchHint ? <div className="state">{batchHint}</div> : null}
 
         <div className="table-wrap">
-          <table className="data-table">
+          <table className="data-table process-card-table">
             <thead>
               <tr>
                 <th>
@@ -306,45 +343,45 @@ export function ListPage() {
                     aria-label="全选当前列表"
                   />
                 </th>
-                <th>计划单号</th>
-                <th>产品信息</th>
-                <th>状态</th>
+                <th><button type="button" className="table-sort" onClick={() => changeSort('planNumber')}>计划单号 <span>{sortMark('planNumber')}</span></button></th>
+                <th><button type="button" className="table-sort" onClick={() => changeSort('productName')}>产品信息 <span>{sortMark('productName')}</span></button></th>
+                <th><button type="button" className="table-sort" onClick={() => changeSort('status')}>状态 <span>{sortMark('status')}</span></button></th>
                 <th>当前处理人</th>
-                <th>工序</th>
-                <th>热处理</th>
-                <th>更新</th>
+                <th className="table-column--secondary">工序</th>
+                <th className="table-column--secondary">热处理</th>
+                <th><button type="button" className="table-sort" onClick={() => changeSort('updatedAt')}>更新 <span>{sortMark('updatedAt')}</span></button></th>
                 <th>操作</th>
               </tr>
             </thead>
             <tbody>
               {cards.map((item) => (
                 <tr key={item.id}>
-                  <td>
+                  <td data-label="选择">
                     <input
                       type="checkbox"
                       checked={selectedIds.includes(item.id)}
                       onChange={() => toggleSelected(item.id)}
                     />
                   </td>
-                  <td>
+                  <td data-label="计划单号">
                     {item.planNumber}
                   </td>
-                  <td>
+                  <td data-label="产品信息">
                     <strong>{item.productName}</strong>
                     <br />
                     {item.material} / {item.specification}
                     <br />
                     {item.customerCode}
                   </td>
-                  <td>
+                  <td data-label="状态">
                     {CARD_STATUS_LABELS[item.status]}
                     {item.lastReturnComment ? <div className="table-note">{item.lastReturnComment}</div> : null}
                   </td>
-                  <td>{item.currentHandlerName || '-'}</td>
-                  <td>{item.enabledOperationCodes.map((code) => definitionMap.get(code) ?? code).join('、')}</td>
-                  <td>{item.heatTreatmentTypes.join('、') || '-'}</td>
-                  <td>{new Date(item.updatedAt).toLocaleString('zh-CN')}</td>
-                  <td className="table-actions">
+                  <td data-label="当前处理人">{item.currentHandlerName || '-'}</td>
+                  <td data-label="工序" className="table-column--secondary">{item.enabledOperationCodes.map((code) => definitionMap.get(code) ?? code).join('、')}</td>
+                  <td data-label="热处理" className="table-column--secondary">{item.heatTreatmentTypes.join('、') || '-'}</td>
+                  <td data-label="更新">{new Date(item.updatedAt).toLocaleString('zh-CN')}</td>
+                  <td data-label="操作" className="table-actions">
                     {item.permissions.canEdit ? (
                       <>
                         <button
