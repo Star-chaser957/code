@@ -10,6 +10,7 @@ export type CardWorkflowStatus =
   | 'pending_review'
   | 'pending_approve'
   | 'approved'
+  | 'superseded'
   | 'voided'
   | 'rejected_to_prepare'
   | 'rejected_to_confirm'
@@ -25,7 +26,11 @@ export type ApprovalAction =
   | 'reject_to_confirm'
   | 'submit_approve'
   | 'reject_to_review'
-  | 'approve';
+  | 'approve'
+  | 'submit_revision_review'
+  | 'activate_revision';
+
+export type RevisionType = 'quick' | 'technical' | 'major';
 
 export type OperationFieldDefinition = {
   key: string;
@@ -96,7 +101,21 @@ export type ApprovalLog = {
 export type CardPermissions = {
   canEdit: boolean;
   canDelete: boolean;
+  canRevise: boolean;
   availableActions: ApprovalAction[];
+};
+
+export type ProcessCardRevisionRequest = {
+  revisionType: RevisionType;
+  reason: string;
+  effectiveScope: string;
+};
+
+export type ProcessCardRevisionDiff = {
+  sourceCardId: string;
+  sourceVersionNo: number;
+  currentVersionNo: number;
+  changes: AuditLogChange[];
 };
 
 export type ProcessCardPayload = {
@@ -134,6 +153,10 @@ export type ProcessCardPayload = {
   approvedUserId: string;
   versionNo: number;
   sourceCardId: string;
+  revisionReason: string;
+  revisionEffectiveScope: string;
+  revisionType: RevisionType | '';
+  supersededByCardId: string;
   submittedAt: string;
   lockedAt: string;
   lastReturnComment: string;
@@ -155,8 +178,18 @@ export type ProcessCardListFilters = {
   operationCode?: string;
   heatTreatmentType?: string;
   status?: CardWorkflowStatus | '';
-  sortBy?: 'planNumber' | 'productName' | 'deliveryDate' | 'status' | 'updatedAt';
+  sortBy?: 'planNumber' | 'productName' | 'deliveryDate' | 'status' | 'createdAt' | 'updatedAt';
   sortDirection?: 'asc' | 'desc';
+  page?: number;
+  pageSize?: number;
+};
+
+export type ProcessCardListResponse = {
+  items: ProcessCardListItem[];
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
 };
 
 export type ProcessCardListItem = {
@@ -338,6 +371,7 @@ export type DashboardOverview = {
   tasks: DashboardTaskSummary;
   stats: DashboardStatSummary;
   trend: DashboardTrendPoint[];
+  trends: Record<'day' | 'week' | 'month' | 'year', DashboardTrendPoint[]>;
   statusDistribution: DashboardDistributionItem[];
   recentActivities: DashboardActivityItem[];
   notifications: NotificationItem[];
@@ -384,10 +418,17 @@ export const CARD_STATUS_LABELS: Record<CardWorkflowStatus, string> = {
   pending_review: '待审核',
   pending_approve: '待批准',
   approved: '已批准',
+  superseded: '已被替代',
   voided: '已作废',
   rejected_to_prepare: '退回编制',
   rejected_to_confirm: '退回确认',
   rejected_to_review: '退回审核',
+};
+
+export const REVISION_TYPE_LABELS: Record<RevisionType, string> = {
+  quick: '快速修订',
+  technical: '技术修订',
+  major: '重大变更',
 };
 
 export const APPROVAL_ACTION_LABELS: Record<ApprovalAction, string> = {
@@ -399,6 +440,8 @@ export const APPROVAL_ACTION_LABELS: Record<ApprovalAction, string> = {
   submit_approve: '提交批准',
   reject_to_review: '退回审核',
   approve: '批准通过',
+  submit_revision_review: '提交技术复核',
+  activate_revision: '确认修订生效',
 };
 
 export const APPROVAL_ACTION_COMMENT_REQUIRED: ApprovalAction[] = [

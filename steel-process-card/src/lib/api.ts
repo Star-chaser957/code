@@ -9,7 +9,9 @@ import type {
   LoginResponse,
   OperationDefinition,
   ProcessCardListFilters,
-  ProcessCardListItem,
+  ProcessCardListResponse,
+  ProcessCardRevisionDiff,
+  ProcessCardRevisionRequest,
   ProcessCardPayload,
   ProductPrefillCandidate,
   NotificationOverview,
@@ -146,8 +148,9 @@ export const api = {
     const query = new URLSearchParams();
 
     for (const [key, value] of Object.entries(filters)) {
-      if (value?.trim()) {
-        query.set(key, value.trim());
+      const normalized = value === undefined || value === null ? '' : String(value).trim();
+      if (normalized) {
+        query.set(key, normalized);
       }
     }
 
@@ -166,12 +169,13 @@ export const api = {
     const query = new URLSearchParams();
 
     for (const [key, value] of Object.entries(filters)) {
-      if (value?.trim()) {
-        query.set(key, value.trim());
+      const normalized = value === undefined || value === null ? '' : String(value).trim();
+      if (normalized) {
+        query.set(key, normalized);
       }
     }
 
-    return request<{ items: ProcessCardListItem[] }>(
+    return request<ProcessCardListResponse>(
       `/api/process-cards${query.size > 0 ? `?${query.toString()}` : ''}`,
     );
   },
@@ -200,6 +204,15 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
+
+  createProcessCardRevision: async (id: string, payload: ProcessCardRevisionRequest) =>
+    request<ProcessCardPayload>(`/api/process-cards/${id}/revisions`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  getProcessCardRevisionDiff: async (id: string) =>
+    request<ProcessCardRevisionDiff | null>(`/api/process-cards/${id}/revision-diff`),
 
   deleteProcessCard: async (id: string) =>
     request<{ success: boolean }>(`/api/process-cards/${id}`, {

@@ -1,4 +1,4 @@
-import { CARD_STATUS_LABELS, FIXED_REMARK } from '../../shared/types';
+import { CARD_STATUS_LABELS, FIXED_REMARK, REVISION_TYPE_LABELS } from '../../shared/types';
 import type { OperationDefinition, ProcessCardPayload } from '../../shared/types';
 import { buildPrintCells } from '../lib/print';
 
@@ -37,7 +37,7 @@ export function PrintTemplate({
         </div>
         <div className="print-title">
           <h1>生产工艺卡</h1>
-          <span>{CARD_STATUS_LABELS[card.status]}</span>
+          <span>V{card.versionNo} · {CARD_STATUS_LABELS[card.status]}</span>
         </div>
         <div className="print-header__spacer" aria-hidden="true" />
       </header>
@@ -88,6 +88,14 @@ export function PrintTemplate({
             <th>技术要求</th>
             <td colSpan={5}>{card.technicalRequirements}</td>
           </tr>
+          {card.versionNo > 1 ? (
+            <tr className="print-revision-row">
+              <th>修订记录</th>
+              <td colSpan={5}>
+                V{card.versionNo}；类型：{card.revisionType ? REVISION_TYPE_LABELS[card.revisionType] : '-'}；原因：{card.revisionReason || '-'}；生效范围：{card.revisionEffectiveScope || '-'}
+              </td>
+            </tr>
+          ) : null}
         </tbody>
       </table>
 

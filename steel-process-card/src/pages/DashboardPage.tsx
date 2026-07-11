@@ -29,6 +29,7 @@ ChartJS.register(
 );
 
 type DashboardMode = 'admin' | 'prepare' | 'confirm' | 'review' | 'approve' | 'viewer';
+type TrendRange = 'day' | 'week' | 'month' | 'year';
 
 type ShortcutItem = {
   title: string;
@@ -347,6 +348,7 @@ export function DashboardPage() {
   const [cards, setCards] = useState<ProcessCardListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [trendRange, setTrendRange] = useState<TrendRange>('day');
 
   useEffect(() => {
     let active = true;
@@ -403,12 +405,13 @@ export function DashboardPage() {
       return null;
     }
 
+    const points = overview.trends?.[trendRange] ?? overview.trend;
     return {
-      labels: overview.trend.map((item) => item.label),
+      labels: points.map((item) => item.label),
       datasets: [
         {
           label: '新增工艺卡',
-          data: overview.trend.map((item) => item.value),
+          data: points.map((item) => item.value),
           borderColor: '#2f6b4f',
           backgroundColor: 'rgba(47, 107, 79, 0.16)',
           borderWidth: 2,
@@ -418,7 +421,7 @@ export function DashboardPage() {
         },
       ],
     };
-  }, [overview]);
+  }, [overview, trendRange]);
 
   const doughnutData = useMemo(() => {
     if (!overview) {
@@ -461,25 +464,39 @@ export function DashboardPage() {
     canCreateCards ? true : item.to !== '/cards/new',
   );
 
-  const statCards = [
-    { label: '今日新建', value: overview.stats.todayCreated },
-    { label: '本周新建', value: overview.stats.weekCreated },
-    { label: '本月新建', value: overview.stats.monthCreated },
-    { label: '本年新建', value: overview.stats.yearCreated },
-    { label: '已批准', value: overview.stats.approvedCount },
-    { label: '已作废', value: overview.stats.voidedCount },
+  const primaryMetrics = [
+    {
+      label: modeConfig.highlightLabel,
+      value: modeConfig.highlightValue,
+      description: modeConfig.highlightDescription,
+      emphasis: true,
+    },
+    ...modeConfig.taskCards.map((item) => ({ ...item, description: '', emphasis: false })),
+  ]
+    .filter((item, index, items) => items.findIndex((candidate) => candidate.label === item.label) === index)
+    .slice(0, 4);
+  const trendStats: Array<{ range: TrendRange; label: string; value: number }> = [
+    { range: 'day', label: '今日新建', value: overview.stats.todayCreated },
+    { range: 'week', label: '本周新建', value: overview.stats.weekCreated },
+    { range: 'month', label: '本月新建', value: overview.stats.monthCreated },
+    { range: 'year', label: '本年新建', value: overview.stats.yearCreated },
   ];
+  const trendTitles: Record<TrendRange, string> = {
+    day: '近 7 天新增趋势',
+    week: '近 8 周新增趋势',
+    month: '近 12 个月新增趋势',
+    year: '近 5 年新增趋势',
+  };
 
   return (
     <div className="page dashboard-page">
       <header className="dashboard-hero">
         <div>
-          <p className="page__eyebrow">Workbench</p>
-          <div className="dashboard-hero__badge">{modeConfig.badge}</div>
-          <h2>{modeConfig.heading}</h2>
-          <p>
-            欢迎回来，{user?.displayName ?? user?.username}。{modeConfig.description}
-          </p>
+          <div className="dashboard-hero__title-line">
+            <div className="dashboard-hero__badge">{modeConfig.badge}</div>
+            <h2>{modeConfig.heading}</h2>
+          </div>
+          <p>欢迎回来，{user?.displayName ?? user?.username}。{modeConfig.description}</p>
         </div>
         <div className="dashboard-hero__actions">
           {visibleShortcuts.slice(0, 2).map((item) => (
@@ -496,79 +513,21 @@ export function DashboardPage() {
 
       {error ? <div className="state state--error">{error}</div> : null}
 
-      <section className="dashboard-section">
-        <div className="panel dashboard-highlight">
-          <div>
-            <span className="dashboard-highlight__label">{modeConfig.highlightLabel}</span>
-            <strong>{modeConfig.highlightValue}</strong>
-            <p>{modeConfig.highlightDescription}</p>
-          </div>
-          <div className="dashboard-highlight__meta">
-            <span>最近流程动态 {overview.recentActivities.length} 条</span>
-          </div>
-        </div>
-      </section>
-
-      <section className="dashboard-grid dashboard-grid--tasks">
-        {modeConfig.taskCards.map((item) => (
-          <article key={item.label} className="panel dashboard-card">
+      <section className="dashboard-grid dashboard-grid--primary-metrics">
+        {primaryMetrics.map((item) => (
+          <article key={item.label} className={`panel dashboard-card ${item.emphasis ? 'dashboard-card--emphasis' : ''}`}>
             <span className="dashboard-card__label">{item.label}</span>
             <strong>{item.value}</strong>
+            {item.description ? <p>{item.description}</p> : null}
           </article>
         ))}
       </section>
 
-      <section className="dashboard-grid dashboard-grid--stats">
-        {statCards.map((item) => (
-          <article key={item.label} className="panel dashboard-card dashboard-card--soft">
-            <span className="dashboard-card__label">{item.label}</span>
-            <strong>{item.value}</strong>
-          </article>
-        ))}
-      </section>
-
-      <section className="dashboard-charts">
-        <article className="panel dashboard-chart">
+      <section className="dashboard-primary-layout">
+        <article className="panel dashboard-focus-panel">
           <div className="panel__header">
-            <h3>{modeConfig.chartTitle}</h3>
-            <span>{modeConfig.chartDescription}</span>
-          </div>
-          {trendData ? (
-            <Line
-              data={trendData}
-              options={{
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: { legend: { display: false } },
-              }}
-            />
-          ) : null}
-        </article>
-
-        <article className="panel dashboard-chart dashboard-chart--small">
-          <div className="panel__header">
-            <h3>状态分布</h3>
-            <span>当前系统内工艺卡状态分布</span>
-          </div>
-          {doughnutData ? (
-            <Doughnut
-              data={doughnutData}
-              options={{
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: { legend: { position: 'bottom' } },
-                cutout: '64%',
-              }}
-            />
-          ) : null}
-        </article>
-      </section>
-
-      <section className="dashboard-bottom">
-        <article className="panel">
-          <div className="panel__header">
-            <h3>{modeConfig.focusTitle}</h3>
-            <span>{modeConfig.focusDescription}</span>
+            <div><h3>{modeConfig.focusTitle}</h3><span>{modeConfig.focusDescription}</span></div>
+            <Link to="/cards" className="button button--ghost button--small">查看全部</Link>
           </div>
           <div className="dashboard-focus-list">
             {modeConfig.focusCards.map((item) => (
@@ -582,92 +541,52 @@ export function DashboardPage() {
                   <span>{new Date(item.updatedAt).toLocaleString('zh-CN')}</span>
                 </div>
                 <div className="dashboard-focus-item__actions">
-                  <Link to={item.to} className="button button--ghost button--small">
-                    {item.actionLabel}
-                  </Link>
+                  <Link to={item.to} className="button button--primary button--small">{item.actionLabel}</Link>
                 </div>
               </div>
             ))}
-            {modeConfig.focusCards.length === 0 ? (
-              <div className="state">当前没有需要你优先处理的工艺卡。</div>
-            ) : null}
+            {modeConfig.focusCards.length === 0 ? <div className="state">当前没有需要你优先处理的工艺卡。</div> : null}
           </div>
         </article>
 
-        <article className="panel">
-          <div className="panel__header">
-            <h3>{modeConfig.shortcutTitle}</h3>
-            <span>{modeConfig.shortcutDescription}</span>
-          </div>
-          <div className="dashboard-shortcuts">
-            {visibleShortcuts.map((item) => (
-              <Link key={item.to} to={item.to} className="dashboard-shortcut">
-                <strong>{item.title}</strong>
-                <span>{item.description}</span>
-              </Link>
+        <article className="panel dashboard-chart dashboard-chart--trend">
+          <div className="panel__header"><div><h3>{trendTitles[trendRange]}</h3><span>{modeConfig.chartDescription}</span></div></div>
+          <div className="dashboard-trend-stats" role="tablist" aria-label="趋势统计范围">
+            {trendStats.map((item) => (
+              <button
+                key={item.range}
+                type="button"
+                role="tab"
+                aria-selected={trendRange === item.range}
+                className={`dashboard-trend-stat ${trendRange === item.range ? 'is-active' : ''}`}
+                onClick={() => setTrendRange(item.range)}
+              >
+                <span>{item.label}</span>
+                <strong>{item.value}</strong>
+              </button>
             ))}
           </div>
+          {trendData ? <Line data={trendData} options={{ responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }} /> : null}
         </article>
       </section>
 
-      <section className="dashboard-section">
+      <section className="dashboard-secondary-layout">
         <article className="panel">
-          <div className="panel__header">
-            <h3>站内消息</h3>
-            <span>{`当前待办提醒 ${overview.notificationCount} 条`}</span>
-          </div>
-          <div className="notification-list">
-            {overview.notifications.slice(0, 6).map((item) => (
-              <article key={item.id} className={`notification-card notification-card--${item.level}`}>
-                <div className="notification-card__header">
-                  <div>
-                    <strong>{item.title}</strong>
-                    <p>{item.description}</p>
-                  </div>
-                  <span>{new Date(item.createdAt).toLocaleString('zh-CN')}</span>
-                </div>
-                <div className="notification-card__actions">
-                  <Link to={item.to} className="button button--ghost button--small">
-                    {item.actionLabel}
-                  </Link>
-                </div>
-              </article>
-            ))}
-            {overview.notifications.length === 0 ? (
-              <div className="state">当前没有新的待办提醒和站内消息。</div>
-            ) : null}
-          </div>
-          {overview.notifications.length > 0 ? (
-            <div className="toolbar">
-              <Link to="/messages" className="button button--ghost button--small">
-                查看全部消息
-              </Link>
-            </div>
-          ) : null}
-        </article>
-      </section>
-
-      <section className="dashboard-section">
-        <article className="panel">
-          <div className="panel__header">
-            <h3>最近流程动态</h3>
-            <span>基于工艺卡和审批日志</span>
-          </div>
+          <div className="panel__header"><div><h3>最近流程动态</h3><span>只展示与你当前角色相关的最近5条记录</span></div></div>
           <div className="dashboard-activity-list">
-            {overview.recentActivities.map((item) => (
+            {overview.recentActivities.slice(0, 5).map((item) => (
               <div key={item.id} className="dashboard-activity-item">
-                <div>
-                  <strong>{item.title}</strong>
-                  <p>{item.actorDisplayName}</p>
-                </div>
-                <div className="dashboard-activity-item__meta">
-                  <span>{item.statusLabel}</span>
-                  <span>{new Date(item.createdAt).toLocaleString('zh-CN')}</span>
-                </div>
+                <div><strong>{item.title}</strong><p>{item.actorDisplayName}</p></div>
+                <div className="dashboard-activity-item__meta"><span>{item.statusLabel}</span><span>{new Date(item.createdAt).toLocaleString('zh-CN')}</span></div>
               </div>
             ))}
             {overview.recentActivities.length === 0 ? <div className="state">当前还没有流程动态。</div> : null}
           </div>
+        </article>
+
+        <article className="panel dashboard-chart dashboard-chart--status">
+          <div className="panel__header"><div><h3>状态分布</h3><span>当前系统内工艺卡状态概览</span></div></div>
+          {doughnutData ? <Doughnut data={doughnutData} options={{ responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } }, cutout: '68%' }} /> : null}
         </article>
       </section>
     </div>

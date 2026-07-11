@@ -6,6 +6,7 @@ import type {
   BatchExportRequest,
   ProcessCardListFilters,
   ProcessCardPayload,
+  ProcessCardRevisionRequest,
 } from '../../shared/types';
 
 export const processCardRoutes: FastifyPluginAsync = async (fastify) => {
@@ -16,9 +17,7 @@ export const processCardRoutes: FastifyPluginAsync = async (fastify) => {
     }
 
     const query = request.query as ProcessCardListFilters;
-    return {
-      items: await repository.listProcessCards(query, user),
-    };
+    return repository.listProcessCards(query, user);
   });
 
   fastify.get('/prefill/by-product-name', async (request, reply) => {
@@ -80,6 +79,27 @@ export const processCardRoutes: FastifyPluginAsync = async (fastify) => {
     const { id } = request.params as { id: string };
     const payload = request.body as ApprovalActionRequest;
     return repository.performApprovalAction(id, payload, user, request.ip);
+  });
+
+  fastify.post('/:id/revisions', async (request, reply) => {
+    const user = await requireAuth(request, reply);
+    if (!user) {
+      return;
+    }
+
+    const { id } = request.params as { id: string };
+    const payload = request.body as ProcessCardRevisionRequest;
+    return repository.createRevision(id, payload, user, request.ip);
+  });
+
+  fastify.get('/:id/revision-diff', async (request, reply) => {
+    const user = await requireAuth(request, reply);
+    if (!user) {
+      return;
+    }
+
+    const { id } = request.params as { id: string };
+    return repository.getRevisionDiff(id);
   });
 
   fastify.delete('/:id', async (request, reply) => {

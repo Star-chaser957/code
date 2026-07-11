@@ -16,6 +16,7 @@ import {
   CARD_STATUS_LABELS,
   FIXED_REMARK,
   MAIN_INFO_FIELDS,
+  REVISION_TYPE_LABELS,
 } from '../../shared/types';
 import { useAuth } from '../auth/AuthProvider';
 import { OperationEditor } from '../components/OperationEditor';
@@ -38,7 +39,9 @@ function isPrimaryWorkflowAction(action: ApprovalAction) {
     action === 'submit_confirm' ||
     action === 'submit_review' ||
     action === 'submit_approve' ||
-    action === 'approve'
+    action === 'approve' ||
+    action === 'submit_revision_review' ||
+    action === 'activate_revision'
   );
 }
 
@@ -555,6 +558,19 @@ export function EditorPage() {
 
       {message ? <div className="state">{message}</div> : null}
       {error ? <div className="state state--error">{error}</div> : null}
+      {card.versionNo > 1 ? (
+        <section className="revision-editor-banner">
+          <div>
+            <strong>正在修订 V{card.versionNo}</strong>
+            <span>上一版本 V{card.versionNo - 1} 保持冻结，本版本批准后才会正式替代。</span>
+          </div>
+          <dl className="revision-meta">
+            <div><dt>修订类型</dt><dd>{card.revisionType ? REVISION_TYPE_LABELS[card.revisionType] : '-'}</dd></div>
+            <div><dt>修订原因</dt><dd>{card.revisionReason || '-'}</dd></div>
+            <div><dt>生效范围</dt><dd>{card.revisionEffectiveScope || '-'}</dd></div>
+          </dl>
+        </section>
+      ) : null}
 
       {showApprovalPreview ? (
         <>

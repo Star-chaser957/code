@@ -20,6 +20,7 @@ export function ListPage() {
   const [exporting, setExporting] = useState(false);
   const [error, setError] = useState('');
   const [batchHint, setBatchHint] = useState('');
+  const [pagination, setPagination] = useState({ page: 1, pageSize: 20, total: 0, totalPages: 1 });
   const [filters, setFilters] = useState<ProcessCardListFilters>({
     keyword: '',
     planNumber: '',
@@ -31,8 +32,10 @@ export function ListPage() {
     operationCode: '',
     heatTreatmentType: '',
     status: '',
-    sortBy: 'updatedAt',
+    sortBy: 'createdAt',
     sortDirection: 'desc',
+    page: 1,
+    pageSize: 20,
   });
 
   const deferredKeyword = useDeferredValue(filters.keyword ?? '');
@@ -50,7 +53,12 @@ export function ListPage() {
     try {
       const response = await api.listProcessCards(nextFilters);
       setCards(response.items);
-      setSelectedIds((current) => current.filter((id) => response.items.some((item) => item.id === id)));
+      setPagination({
+        page: response.page,
+        pageSize: response.pageSize,
+        total: response.total,
+        totalPages: response.totalPages,
+      });
       setError('');
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '列表加载失败');
@@ -78,13 +86,21 @@ export function ListPage() {
     filters.status,
     filters.sortBy,
     filters.sortDirection,
+    filters.page,
+    filters.pageSize,
   ]);
+
+  const updateFilter = (patch: Partial<ProcessCardListFilters>) => {
+    setSelectedIds([]);
+    setFilters((current) => ({ ...current, ...patch, page: 1 }));
+  };
 
   const changeSort = (sortBy: NonNullable<ProcessCardListFilters['sortBy']>) => {
     setFilters((current) => ({
       ...current,
       sortBy,
       sortDirection: current.sortBy === sortBy && current.sortDirection === 'asc' ? 'desc' : 'asc',
+      page: 1,
     }));
   };
 
@@ -180,7 +196,7 @@ export function ListPage() {
             </Link>
           ) : null}
           <button type="button" className="button" onClick={toggleSelectAllVisible} disabled={cards.length === 0}>
-            {allVisibleSelected ? '取消全选' : '全选当前列表'}
+            {allVisibleSelected ? '取消全选当前页' : '全选当前页'}
           </button>
           <button type="button" className="button" onClick={() => void handleBatchExport()} disabled={exporting}>
             {exporting ? '导出中...' : '批量导出'}
@@ -199,7 +215,7 @@ export function ListPage() {
             <input
               value={filters.keyword}
               placeholder="计划单号 / 客户 / 产品 / 材质 / 规格"
-              onChange={(event) => setFilters((current) => ({ ...current, keyword: event.target.value }))}
+              onChange={(event) => updateFilter({ keyword: event.target.value })}
             />
           </label>
 
@@ -207,7 +223,7 @@ export function ListPage() {
             <span>计划单号</span>
             <input
               value={filters.planNumber}
-              onChange={(event) => setFilters((current) => ({ ...current, planNumber: event.target.value }))}
+              onChange={(event) => updateFilter({ planNumber: event.target.value })}
             />
           </label>
 
@@ -215,7 +231,7 @@ export function ListPage() {
             <span>客户代码</span>
             <input
               value={filters.customerCode}
-              onChange={(event) => setFilters((current) => ({ ...current, customerCode: event.target.value }))}
+              onChange={(event) => updateFilter({ customerCode: event.target.value })}
             />
           </label>
 
@@ -223,7 +239,7 @@ export function ListPage() {
             <span>产品名称</span>
             <input
               value={filters.productName}
-              onChange={(event) => setFilters((current) => ({ ...current, productName: event.target.value }))}
+              onChange={(event) => updateFilter({ productName: event.target.value })}
             />
           </label>
 
@@ -231,7 +247,7 @@ export function ListPage() {
             <span>材质</span>
             <input
               value={filters.material}
-              onChange={(event) => setFilters((current) => ({ ...current, material: event.target.value }))}
+              onChange={(event) => updateFilter({ material: event.target.value })}
             />
           </label>
 
@@ -239,7 +255,7 @@ export function ListPage() {
             <span>规格</span>
             <input
               value={filters.specification}
-              onChange={(event) => setFilters((current) => ({ ...current, specification: event.target.value }))}
+              onChange={(event) => updateFilter({ specification: event.target.value })}
             />
           </label>
 
@@ -248,7 +264,7 @@ export function ListPage() {
             <input
               type="date"
               value={filters.deliveryDate}
-              onChange={(event) => setFilters((current) => ({ ...current, deliveryDate: event.target.value }))}
+              onChange={(event) => updateFilter({ deliveryDate: event.target.value })}
             />
           </label>
 
@@ -256,7 +272,7 @@ export function ListPage() {
             <span>流程状态</span>
             <select
               value={filters.status}
-              onChange={(event) => setFilters((current) => ({ ...current, status: event.target.value as ProcessCardListFilters['status'] }))}
+              onChange={(event) => updateFilter({ status: event.target.value as ProcessCardListFilters['status'] })}
             >
               <option value="">全部</option>
               {Object.entries(CARD_STATUS_LABELS).map(([status, label]) => (
@@ -271,7 +287,7 @@ export function ListPage() {
             <span>包含工序</span>
             <select
               value={filters.operationCode}
-              onChange={(event) => setFilters((current) => ({ ...current, operationCode: event.target.value }))}
+              onChange={(event) => updateFilter({ operationCode: event.target.value })}
             >
               <option value="">全部</option>
               {definitions.map((item) => (
@@ -286,7 +302,7 @@ export function ListPage() {
             <span>热处理类型</span>
             <select
               value={filters.heatTreatmentType}
-              onChange={(event) => setFilters((current) => ({ ...current, heatTreatmentType: event.target.value }))}
+              onChange={(event) => updateFilter({ heatTreatmentType: event.target.value })}
             >
               <option value="">全部</option>
               {heatTreatmentOptions.map((item) => (
@@ -306,9 +322,11 @@ export function ListPage() {
                   NonNullable<ProcessCardListFilters['sortBy']>,
                   NonNullable<ProcessCardListFilters['sortDirection']>,
                 ];
-                setFilters((current) => ({ ...current, sortBy, sortDirection }));
+                setFilters((current) => ({ ...current, sortBy, sortDirection, page: 1 }));
               }}
             >
+              <option value="createdAt-desc">最新创建优先</option>
+              <option value="createdAt-asc">最早创建优先</option>
               <option value="updatedAt-desc">最近更新优先</option>
               <option value="updatedAt-asc">最早更新优先</option>
               <option value="planNumber-asc">计划单号升序</option>
@@ -324,7 +342,7 @@ export function ListPage() {
       <section className="panel">
         <div className="panel__header">
           <h3>列表结果</h3>
-          <span>{loading ? '加载中...' : `共 ${cards.length} 条，已选择 ${selectedIds.length} 条`}</span>
+          <span>{loading ? '加载中...' : `共 ${pagination.total} 条，第 ${pagination.page}/${pagination.totalPages} 页，已选择 ${selectedIds.length} 条`}</span>
         </div>
 
         {error ? <div className="state state--error">{error}</div> : null}
@@ -340,7 +358,7 @@ export function ListPage() {
                     checked={allVisibleSelected}
                     onChange={toggleSelectAllVisible}
                     disabled={cards.length === 0}
-                    aria-label="全选当前列表"
+                    aria-label="全选当前页"
                   />
                 </th>
                 <th><button type="button" className="table-sort" onClick={() => changeSort('planNumber')}>计划单号 <span>{sortMark('planNumber')}</span></button></th>
@@ -365,6 +383,7 @@ export function ListPage() {
                   </td>
                   <td data-label="计划单号">
                     {item.planNumber}
+                    {item.versionNo > 1 ? <span className="version-badge">V{item.versionNo}</span> : null}
                   </td>
                   <td data-label="产品信息">
                     <strong>{item.productName}</strong>
@@ -432,6 +451,33 @@ export function ListPage() {
               ))}
             </tbody>
           </table>
+        </div>
+
+        {!loading && cards.length === 0 ? <div className="state">没有符合当前条件的工艺卡。</div> : null}
+
+        <div className="pagination">
+          <div className="pagination__summary">
+            <span>每页</span>
+            <select
+              value={pagination.pageSize}
+              onChange={(event) => {
+                setSelectedIds([]);
+                setFilters((current) => ({ ...current, page: 1, pageSize: Number(event.target.value) }));
+              }}
+            >
+              <option value={20}>20 条</option>
+              <option value={50}>50 条</option>
+              <option value={100}>100 条</option>
+            </select>
+            <span>共 {pagination.total} 条</span>
+          </div>
+          <div className="pagination__buttons">
+            <button type="button" className="button button--small button--ghost" disabled={loading || pagination.page <= 1} onClick={() => setFilters((current) => ({ ...current, page: 1 }))}>首页</button>
+            <button type="button" className="button button--small button--ghost" disabled={loading || pagination.page <= 1} onClick={() => setFilters((current) => ({ ...current, page: pagination.page - 1 }))}>上一页</button>
+            <span className="pagination__current">第 {pagination.page} / {pagination.totalPages} 页</span>
+            <button type="button" className="button button--small button--ghost" disabled={loading || pagination.page >= pagination.totalPages} onClick={() => setFilters((current) => ({ ...current, page: pagination.page + 1 }))}>下一页</button>
+            <button type="button" className="button button--small button--ghost" disabled={loading || pagination.page >= pagination.totalPages} onClick={() => setFilters((current) => ({ ...current, page: pagination.totalPages }))}>末页</button>
+          </div>
         </div>
       </section>
     </div>

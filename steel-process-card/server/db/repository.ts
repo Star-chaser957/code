@@ -33,8 +33,10 @@ import type {
   OperationDefinition,
   OperationDetail,
   ProcessCardListFilters,
-  ProcessCardListItem,
+  ProcessCardListResponse,
   ProcessCardPayload,
+  ProcessCardRevisionDiff,
+  ProcessCardRevisionRequest,
   ProductPrefillCandidate,
   UserRole,
   UserAccount,
@@ -85,6 +87,10 @@ const processCardSchema = z.object({
   reviewedUserId: z.string(),
   approvedUserId: z.string(),
   sourceCardId: z.string().optional(),
+  revisionReason: z.string().optional().default(''),
+  revisionEffectiveScope: z.string().optional().default(''),
+  revisionType: z.enum(['quick', 'technical', 'major']).or(z.literal('')).optional().default(''),
+  supersededByCardId: z.string().optional().default(''),
   operations: z.array(
     z.object({
       id: z.string().optional(),
@@ -163,8 +169,16 @@ const approvalActionSchema = z.object({
     'submit_approve',
     'reject_to_review',
     'approve',
+    'submit_revision_review',
+    'activate_revision',
   ]),
   comment: z.string().optional(),
+});
+
+const processCardRevisionSchema = z.object({
+  revisionType: z.enum(['quick', 'technical', 'major']),
+  reason: z.string().trim().min(2, '请填写明确的修订原因。'),
+  effectiveScope: z.string().trim().min(2, '请填写修订生效范围。'),
 });
 
 const mainInfoFieldLabels = new Map(
@@ -208,6 +222,10 @@ type CardRow = {
   locked_at: string;
   version_no: number;
   source_card_id: string;
+  revision_reason: string;
+  revision_effective_scope: string;
+  revision_type: 'quick' | 'technical' | 'major' | '';
+  superseded_by_card_id: string;
   last_return_comment: string;
   created_at: string;
   updated_at: string;
@@ -454,11 +472,25 @@ const summarizeOperations = (operations: CardOperation[]) =>
     .join('; ');
 
 function getAvailableActions(card: CardRow, viewer: AuthUser | null): ApprovalAction[] {
-  if (!viewer || card.status === 'approved' || card.status === 'voided') {
+  if (!viewer || card.status === 'approved' || card.status === 'superseded' || card.status === 'voided') {
     return [];
   }
 
   if (card.status === 'draft' || card.status === 'rejected_to_prepare') {
+    if (
+      card.source_card_id &&
+      (isAdmin(viewer) || card.created_by_user_id === viewer.id)
+    ) {
+      if (card.revision_type === 'quick') {
+        return ['activate_revision'];
+      }
+      if (card.revision_type === 'technical') {
+        return ['submit_revision_review'];
+      }
+      if (card.revision_type === 'major') {
+        return ['submit_confirm'];
+      }
+    }
     if (
       isAdmin(viewer) ||
       (card.created_by_user_id === viewer.id && hasWorkflowRole(viewer, 'prepare'))
@@ -502,16 +534,26 @@ function getAvailableActions(card: CardRow, viewer: AuthUser | null): ApprovalAc
 }
 
 function getPermissions(card: CardRow, viewer: AuthUser | null): CardPermissions {
-  if (!viewer || card.status === 'approved' || card.status === 'voided') {
+  const canRevise = Boolean(
+    viewer &&
+      card.status === 'approved' &&
+      (isAdmin(viewer) || (card.approved_user_id === viewer.id && hasWorkflowRole(viewer, 'approve'))),
+  );
+
+  if (!viewer || card.status === 'approved' || card.status === 'superseded' || card.status === 'voided') {
     return {
       canEdit: false,
       canDelete: false,
+      canRevise,
       availableActions: getAvailableActions(card, viewer),
     };
   }
 
   const canEdit =
     isAdmin(viewer) ||
+    (Boolean(card.source_card_id) &&
+      (card.status === 'draft' || card.status === 'rejected_to_prepare') &&
+      card.created_by_user_id === viewer.id) ||
     ((card.status === 'draft' || card.status === 'rejected_to_prepare') &&
       card.created_by_user_id === viewer.id &&
       hasWorkflowRole(viewer, 'prepare')) ||
@@ -526,6 +568,7 @@ function getPermissions(card: CardRow, viewer: AuthUser | null): CardPermissions
   return {
     canEdit,
     canDelete,
+    canRevise,
     availableActions: getAvailableActions(card, viewer),
   };
 }
@@ -546,6 +589,10 @@ function getTargetUserIdForAction(card: CardRow, action: ApprovalAction) {
     case 'reject_to_review':
       return card.reviewed_user_id;
     case 'approve':
+      return card.approved_user_id;
+    case 'submit_revision_review':
+      return card.reviewed_user_id;
+    case 'activate_revision':
       return card.approved_user_id;
   }
 }
@@ -635,6 +682,29 @@ function getActionResult(card: CardRow, action: ApprovalAction, comment: string,
         status: 'approved' as const,
         current_step: 'approve' as const,
         current_handler_user_id: '',
+        approved_by: actor.displayName,
+        approved_date: today,
+        locked_at: now,
+      };
+    case 'submit_revision_review':
+      return {
+        ...base,
+        status: 'pending_review' as const,
+        current_step: 'review' as const,
+        current_handler_user_id: card.reviewed_user_id,
+        submitted_at: card.submitted_at || now,
+        prepared_by: actor.displayName,
+        prepared_date: today,
+      };
+    case 'activate_revision':
+      return {
+        ...base,
+        status: 'approved' as const,
+        current_step: 'approve' as const,
+        current_handler_user_id: '',
+        submitted_at: card.submitted_at || now,
+        prepared_by: actor.displayName,
+        prepared_date: today,
         approved_by: actor.displayName,
         approved_date: today,
         locked_at: now,
@@ -732,6 +802,10 @@ export class ProcessCardRepository {
     this.ensureColumn('process_cards', 'locked_at', "TEXT NOT NULL DEFAULT ''");
     this.ensureColumn('process_cards', 'version_no', 'INTEGER NOT NULL DEFAULT 1');
     this.ensureColumn('process_cards', 'source_card_id', "TEXT NOT NULL DEFAULT ''");
+    this.ensureColumn('process_cards', 'revision_reason', "TEXT NOT NULL DEFAULT ''");
+    this.ensureColumn('process_cards', 'revision_effective_scope', "TEXT NOT NULL DEFAULT ''");
+    this.ensureColumn('process_cards', 'revision_type', "TEXT NOT NULL DEFAULT ''");
+    this.ensureColumn('process_cards', 'superseded_by_card_id', "TEXT NOT NULL DEFAULT ''");
     this.ensureColumn('process_cards', 'last_return_comment', "TEXT NOT NULL DEFAULT ''");
   }
 
@@ -1668,6 +1742,30 @@ export class ProcessCardRepository {
       };
     });
 
+    const buildPeriodTrend = (
+      count: number,
+      unit: 'week' | 'month' | 'year',
+      labelFormat: string,
+    ): DashboardTrendPoint[] =>
+      Array.from({ length: count }, (_, index) => {
+        const current = now.startOf(unit === 'week' ? 'isoWeek' : unit).subtract(count - 1 - index, unit);
+        const next = current.add(1, unit);
+        return {
+          label: unit === 'week' ? `${current.format('MM-DD')}周` : current.format(labelFormat),
+          value: cardRows.filter((row) => {
+            const createdAt = dayjs(row.created_at);
+            return (createdAt.isAfter(current) || createdAt.isSame(current)) && createdAt.isBefore(next);
+          }).length,
+        };
+      });
+
+    const trends = {
+      day: trend,
+      week: buildPeriodTrend(8, 'week', 'MM-DD'),
+      month: buildPeriodTrend(12, 'month', 'YYYY-MM'),
+      year: buildPeriodTrend(5, 'year', 'YYYY'),
+    };
+
     const statusDistribution: DashboardDistributionItem[] = [
       { label: '草稿', value: cardRows.filter((row) => row.status === 'draft').length },
       {
@@ -1730,6 +1828,7 @@ export class ProcessCardRepository {
       tasks,
       stats,
       trend,
+      trends,
       statusDistribution: statusDistribution.filter((item) => item.value > 0),
       recentActivities,
       notifications,
@@ -2397,6 +2496,10 @@ export class ProcessCardRepository {
       approvedUserId: card.approved_user_id,
       versionNo: card.version_no,
       sourceCardId: card.source_card_id,
+      revisionReason: card.revision_reason ?? '',
+      revisionEffectiveScope: card.revision_effective_scope ?? '',
+      revisionType: card.revision_type ?? '',
+      supersededByCardId: card.superseded_by_card_id ?? '',
       submittedAt: card.submitted_at,
       lockedAt: card.locked_at,
       lastReturnComment: card.last_return_comment,
@@ -2443,7 +2546,7 @@ export class ProcessCardRepository {
     };
   }
 
-  async listProcessCards(filters: ProcessCardListFilters, viewer: AuthUser): Promise<ProcessCardListItem[]> {
+  async listProcessCards(filters: ProcessCardListFilters, viewer: AuthUser): Promise<ProcessCardListResponse> {
     const whereClauses = ['1 = 1'];
     const params: string[] = [];
 
@@ -2503,10 +2606,22 @@ export class ProcessCardRepository {
       productName: 'c.product_name',
       deliveryDate: 'c.delivery_date',
       status: 'c.status',
+      createdAt: 'c.created_at',
       updatedAt: 'c.updated_at',
     };
-    const sortColumn = sortColumns[filters.sortBy ?? 'updatedAt'];
+    const sortColumn = sortColumns[filters.sortBy ?? 'createdAt'];
     const sortDirection = filters.sortDirection === 'asc' ? 'ASC' : 'DESC';
+    const requestedPage = Number(filters.page);
+    const requestedPageSize = Number(filters.pageSize);
+    const pageSize = [20, 50, 100].includes(requestedPageSize) ? requestedPageSize : 20;
+    const page = Number.isInteger(requestedPage) && requestedPage > 0 ? requestedPage : 1;
+    const [{ total = 0 } = { total: 0 }] = this.sqlite.query<{ total: number }>(
+      `SELECT COUNT(*) AS total FROM process_cards c WHERE ${whereClauses.join(' AND ')}`,
+      params,
+    );
+    const totalPages = Math.max(1, Math.ceil(Number(total) / pageSize));
+    const currentPage = Math.min(page, totalPages);
+    const offset = (currentPage - 1) * pageSize;
 
     const rows = this.sqlite.query<
       CardRow & {
@@ -2528,11 +2643,12 @@ export class ProcessCardRepository {
         WHERE ${whereClauses.join(' AND ')}
         GROUP BY c.id
         ORDER BY ${sortColumn} ${sortDirection}, c.updated_at DESC
+        LIMIT ${pageSize} OFFSET ${offset}
       `,
       params,
     );
 
-    return rows.map((row) => ({
+    const items = rows.map((row) => ({
       id: row.id,
       cardNo: row.card_no,
       planNumber: row.plan_number,
@@ -2554,6 +2670,14 @@ export class ProcessCardRepository {
         canDelete: getPermissions(row, viewer).canDelete,
       },
     }));
+
+    return {
+      items,
+      page: currentPage,
+      pageSize,
+      total: Number(total),
+      totalPages,
+    };
   }
 
   async getProcessCard(id: string, viewer: AuthUser | null = null) {
@@ -2692,6 +2816,124 @@ export class ProcessCardRepository {
         );
       }
     }
+  }
+
+  async createRevision(
+    sourceCardId: string,
+    input: ProcessCardRevisionRequest,
+    actor: AuthUser,
+    ipAddress = '',
+  ) {
+    const request = processCardRevisionSchema.parse(input);
+    const source = await this.getProcessCard(sourceCardId, actor);
+    if (!source?.id) {
+      throw new Error('原工艺卡不存在。');
+    }
+    if (source.status !== 'approved') {
+      throw new Error('只有当前已批准的工艺卡才能发起修订。');
+    }
+    if (!source.permissions.canRevise) {
+      throw new Error('只有该工艺卡的批准人或管理员可以发起修订。');
+    }
+
+    const [existingRevision] = this.sqlite.query<{ id: string }>(
+      `SELECT id FROM process_cards WHERE source_card_id = ? AND status NOT IN ('voided', 'superseded') LIMIT 1`,
+      [sourceCardId],
+    );
+    if (existingRevision) {
+      throw new Error('该版本已经存在进行中的修订，请先处理现有修订稿。');
+    }
+
+    const now = new Date().toISOString();
+    const revisionId = randomUUID();
+    const versionNo = Math.max(1, source.versionNo) + 1;
+
+    this.sqlite.transaction(() => {
+      this.sqlite.run(
+        `
+          INSERT INTO process_cards
+          (id, card_no, plan_number, customer_code, order_date, product_name, material, specification, length_tolerance, quantity,
+           delivery_date, delivery_status, standard, technical_requirements, remark, prepared_by, prepared_date,
+           confirmed_by, confirmed_date, reviewed_by, reviewed_date, approved_by, approved_date, status, current_step,
+           current_handler_user_id, created_by_user_id, confirmed_user_id, reviewed_user_id, approved_user_id, submitted_at,
+           locked_at, version_no, source_card_id, revision_reason, revision_effective_scope, revision_type, superseded_by_card_id,
+           last_return_comment, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `,
+        [
+          revisionId,
+          '',
+          source.planNumber,
+          source.customerCode,
+          source.orderDate,
+          source.productName,
+          source.material,
+          source.specification,
+          source.lengthTolerance,
+          source.quantity,
+          source.deliveryDate,
+          source.deliveryStatus,
+          source.standard,
+          source.technicalRequirements,
+          FIXED_REMARK,
+          '', '', '', '', '', '', '', '',
+          'draft',
+          'prepare',
+          actor.id,
+          actor.id,
+          source.confirmedUserId,
+          source.reviewedUserId,
+          source.approvedUserId,
+          '',
+          '',
+          versionNo,
+          sourceCardId,
+          request.reason,
+          request.effectiveScope,
+          request.revisionType,
+          '',
+          '',
+          now,
+          now,
+        ],
+      );
+      this.writeOperations(revisionId, source.operations);
+      this.writeAuditLog({
+        category: 'process_card',
+        entityType: 'process_card',
+        entityId: revisionId,
+        action: 'create_revision',
+        actor,
+        summary: `发起工艺卡修订：${source.planNumber} V${versionNo}`,
+        detailText: `修订类型：${request.revisionType}；修订原因：${request.reason}；生效范围：${request.effectiveScope}`,
+        changes: [
+          { field: '版本', before: `V${source.versionNo}`, after: `V${versionNo}` },
+          { field: '修订原因', before: '-', after: request.reason },
+          { field: '生效范围', before: '-', after: request.effectiveScope },
+        ],
+        ipAddress,
+      });
+    });
+
+    await this.sqlite.persist();
+    return this.getProcessCard(revisionId, actor);
+  }
+
+  async getRevisionDiff(cardId: string): Promise<ProcessCardRevisionDiff | null> {
+    const current = await this.getProcessCard(cardId, null);
+    if (!current?.sourceCardId) {
+      return null;
+    }
+    const source = await this.getProcessCard(current.sourceCardId, null);
+    if (!source) {
+      return null;
+    }
+    return {
+      sourceCardId: source.id ?? current.sourceCardId,
+      sourceVersionNo: source.versionNo,
+      currentVersionNo: current.versionNo,
+      changes: buildProcessCardChanges(source, current),
+    };
   }
 
   async saveProcessCard(input: ProcessCardPayload, actor: AuthUser, ipAddress = '') {
@@ -2846,6 +3088,30 @@ export class ProcessCardRepository {
       throw new Error('当前状态下你没有执行此流程动作的权限。');
     }
 
+    if (payload.action === 'submit_revision_review' && !card.reviewed_user_id.trim()) {
+      throw new Error('请先指定审核人后再提交技术复核。');
+    }
+    if (payload.action === 'activate_revision') {
+      const diff = await this.getRevisionDiff(cardId);
+      if (!diff?.changes.length) {
+        throw new Error('修订稿还没有修改任何业务字段，不能确认生效。');
+      }
+      const criticalFields = new Set([
+        '计划单号',
+        '产品名称',
+        '材质',
+        '规格及公差（mm）',
+        '长度及公差（mm）',
+        '执行标准',
+        '技术要求',
+        '启用工序',
+      ]);
+      const criticalChanges = diff.changes.filter((change) => criticalFields.has(change.field));
+      if (criticalChanges.length > 0) {
+        throw new Error(`本次修改涉及关键内容（${criticalChanges.map((item) => item.field).join('、')}），不能按快速修订直接生效，请重新发起技术修订。`);
+      }
+    }
+
     if (payload.action === 'submit_confirm' && !card.confirmed_user_id.trim()) {
       throw new Error('请先指定确认人后再提交确认。');
     }
@@ -2887,6 +3153,17 @@ export class ProcessCardRepository {
           cardId,
         ],
       );
+
+      if ((payload.action === 'approve' || payload.action === 'activate_revision') && card.source_card_id) {
+        this.sqlite.run(
+          `
+            UPDATE process_cards
+            SET status = 'superseded', current_handler_user_id = '', superseded_by_card_id = ?, updated_at = ?
+            WHERE id = ? AND status = 'approved'
+          `,
+          [cardId, next.updated_at, card.source_card_id],
+        );
+      }
 
       this.sqlite.run(
         `

@@ -449,6 +449,10 @@ export const createEmptyProcessCard = (
   approvedUserId: '',
   versionNo: 1,
   sourceCardId: '',
+  revisionReason: '',
+  revisionEffectiveScope: '',
+  revisionType: '',
+  supersededByCardId: '',
   submittedAt: '',
   lockedAt: '',
   lastReturnComment: '',
@@ -456,6 +460,7 @@ export const createEmptyProcessCard = (
   permissions: {
     canEdit: true,
     canDelete: true,
+    canRevise: false,
     availableActions: [],
   } satisfies CardPermissions,
   operations: definitions.map(createEmptyOperation),

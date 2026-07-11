@@ -35,6 +35,10 @@ CREATE TABLE IF NOT EXISTS process_cards (
   locked_at TEXT NOT NULL DEFAULT '',
   version_no INTEGER NOT NULL DEFAULT 1,
   source_card_id TEXT NOT NULL DEFAULT '',
+  revision_reason TEXT NOT NULL DEFAULT '',
+  revision_effective_scope TEXT NOT NULL DEFAULT '',
+  revision_type TEXT NOT NULL DEFAULT '',
+  superseded_by_card_id TEXT NOT NULL DEFAULT '',
   last_return_comment TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
