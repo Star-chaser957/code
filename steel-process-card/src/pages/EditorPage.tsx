@@ -16,7 +16,6 @@ import {
   CARD_STATUS_LABELS,
   FIXED_REMARK,
   MAIN_INFO_FIELDS,
-  REVISION_TYPE_LABELS,
 } from '../../shared/types';
 import { useAuth } from '../auth/AuthProvider';
 import { OperationEditor } from '../components/OperationEditor';
@@ -39,9 +38,7 @@ function isPrimaryWorkflowAction(action: ApprovalAction) {
     action === 'submit_confirm' ||
     action === 'submit_review' ||
     action === 'submit_approve' ||
-    action === 'approve' ||
-    action === 'submit_revision_review' ||
-    action === 'activate_revision'
+    action === 'approve'
   );
 }
 
@@ -565,7 +562,6 @@ export function EditorPage() {
             <span>上一版本 V{card.versionNo - 1} 保持冻结，本版本批准后才会正式替代。</span>
           </div>
           <dl className="revision-meta">
-            <div><dt>修订类型</dt><dd>{card.revisionType ? REVISION_TYPE_LABELS[card.revisionType] : '-'}</dd></div>
             <div><dt>修订原因</dt><dd>{card.revisionReason || '-'}</dd></div>
             <div><dt>生效范围</dt><dd>{card.revisionEffectiveScope || '-'}</dd></div>
           </dl>
@@ -942,7 +938,7 @@ export function EditorPage() {
             )}
           </section>
 
-          <section className="panel panel--compact page-actions page-actions--sticky" id="editor-actions">
+          <section className="panel panel--compact page-actions" id="editor-actions">
             <div className="page-actions__inner">
               <div>
                 <h3>操作</h3>

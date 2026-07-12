@@ -2574,33 +2574,6 @@ a {
   justify-content: flex-end;
 }
 
-.revision-type-options {
-  display: grid;
-  gap: 8px;
-}
-
-.revision-type-option {
-  display: grid;
-  gap: 3px;
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: 9px;
-  background: #f7f9fc;
-  color: var(--ink);
-  cursor: pointer;
-  text-align: left;
-}
-
-.revision-type-option span {
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.revision-type-option.is-active {
-  border-color: rgba(54, 88, 71, 0.34);
-  background: rgba(54, 88, 71, 0.08);
-}
-
 @media (min-width: 861px) and (max-width: 1100px) {
   .print-review-layout {
     grid-template-columns: minmax(0, 1fr) 268px;

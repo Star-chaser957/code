@@ -89,7 +89,6 @@ const processCardSchema = z.object({
   sourceCardId: z.string().optional(),
   revisionReason: z.string().optional().default(''),
   revisionEffectiveScope: z.string().optional().default(''),
-  revisionType: z.enum(['quick', 'technical', 'major']).or(z.literal('')).optional().default(''),
   supersededByCardId: z.string().optional().default(''),
   operations: z.array(
     z.object({
@@ -164,19 +163,17 @@ const approvalActionSchema = z.object({
     'submit_confirm',
     'return_prepare',
     'submit_review',
+    'withdraw_review',
     'reject_to_prepare',
     'reject_to_confirm',
     'submit_approve',
     'reject_to_review',
     'approve',
-    'submit_revision_review',
-    'activate_revision',
   ]),
   comment: z.string().optional(),
 });
 
 const processCardRevisionSchema = z.object({
-  revisionType: z.enum(['quick', 'technical', 'major']),
   reason: z.string().trim().min(2, '请填写明确的修订原因。'),
   effectiveScope: z.string().trim().min(2, '请填写修订生效范围。'),
 });
@@ -224,7 +221,6 @@ type CardRow = {
   source_card_id: string;
   revision_reason: string;
   revision_effective_scope: string;
-  revision_type: 'quick' | 'technical' | 'major' | '';
   superseded_by_card_id: string;
   last_return_comment: string;
   created_at: string;
@@ -478,20 +474,6 @@ function getAvailableActions(card: CardRow, viewer: AuthUser | null): ApprovalAc
 
   if (card.status === 'draft' || card.status === 'rejected_to_prepare') {
     if (
-      card.source_card_id &&
-      (isAdmin(viewer) || card.created_by_user_id === viewer.id)
-    ) {
-      if (card.revision_type === 'quick') {
-        return ['activate_revision'];
-      }
-      if (card.revision_type === 'technical') {
-        return ['submit_revision_review'];
-      }
-      if (card.revision_type === 'major') {
-        return ['submit_confirm'];
-      }
-    }
-    if (
       isAdmin(viewer) ||
       (card.created_by_user_id === viewer.id && hasWorkflowRole(viewer, 'prepare'))
     ) {
@@ -505,17 +487,26 @@ function getAvailableActions(card: CardRow, viewer: AuthUser | null): ApprovalAc
       isAdmin(viewer) ||
       (card.confirmed_user_id === viewer.id && hasWorkflowRole(viewer, 'confirm'))
     ) {
-      return ['return_prepare', 'submit_review'];
+      return card.source_card_id ? ['submit_review'] : ['return_prepare', 'submit_review'];
     }
     return [];
   }
 
   if (card.status === 'pending_review' || card.status === 'rejected_to_review') {
     if (
+      card.status === 'pending_review' &&
+      card.confirmed_user_id === viewer.id &&
+      hasWorkflowRole(viewer, 'confirm')
+    ) {
+      return ['withdraw_review'];
+    }
+    if (
       isAdmin(viewer) ||
       (card.reviewed_user_id === viewer.id && hasWorkflowRole(viewer, 'review'))
     ) {
-      return ['reject_to_prepare', 'reject_to_confirm', 'submit_approve'];
+      return card.source_card_id
+        ? ['reject_to_confirm', 'submit_approve']
+        : ['reject_to_prepare', 'reject_to_confirm', 'submit_approve'];
     }
     return [];
   }
@@ -525,7 +516,7 @@ function getAvailableActions(card: CardRow, viewer: AuthUser | null): ApprovalAc
       isAdmin(viewer) ||
       (card.approved_user_id === viewer.id && hasWorkflowRole(viewer, 'approve'))
     ) {
-      return ['reject_to_review', 'approve'];
+      return card.source_card_id ? ['reject_to_confirm', 'approve'] : ['reject_to_review', 'approve'];
     }
     return [];
   }
@@ -537,7 +528,9 @@ function getPermissions(card: CardRow, viewer: AuthUser | null): CardPermissions
   const canRevise = Boolean(
     viewer &&
       card.status === 'approved' &&
-      (isAdmin(viewer) || (card.approved_user_id === viewer.id && hasWorkflowRole(viewer, 'approve'))),
+      (isAdmin(viewer) ||
+        (card.approved_user_id === viewer.id && hasWorkflowRole(viewer, 'approve')) ||
+        (card.confirmed_user_id === viewer.id && hasWorkflowRole(viewer, 'confirm'))),
   );
 
   if (!viewer || card.status === 'approved' || card.status === 'superseded' || card.status === 'voided') {
@@ -551,9 +544,6 @@ function getPermissions(card: CardRow, viewer: AuthUser | null): CardPermissions
 
   const canEdit =
     isAdmin(viewer) ||
-    (Boolean(card.source_card_id) &&
-      (card.status === 'draft' || card.status === 'rejected_to_prepare') &&
-      card.created_by_user_id === viewer.id) ||
     ((card.status === 'draft' || card.status === 'rejected_to_prepare') &&
       card.created_by_user_id === viewer.id &&
       hasWorkflowRole(viewer, 'prepare')) ||
@@ -582,6 +572,8 @@ function getTargetUserIdForAction(card: CardRow, action: ApprovalAction) {
       return card.created_by_user_id;
     case 'submit_review':
       return card.reviewed_user_id;
+    case 'withdraw_review':
+      return card.confirmed_user_id;
     case 'reject_to_confirm':
       return card.confirmed_user_id;
     case 'submit_approve':
@@ -589,10 +581,6 @@ function getTargetUserIdForAction(card: CardRow, action: ApprovalAction) {
     case 'reject_to_review':
       return card.reviewed_user_id;
     case 'approve':
-      return card.approved_user_id;
-    case 'submit_revision_review':
-      return card.reviewed_user_id;
-    case 'activate_revision':
       return card.approved_user_id;
   }
 }
@@ -643,6 +631,20 @@ function getActionResult(card: CardRow, action: ApprovalAction, comment: string,
         confirmed_by: actor.displayName,
         confirmed_date: today,
       };
+    case 'withdraw_review':
+      return {
+        ...base,
+        status: 'pending_confirm' as const,
+        current_step: 'confirm' as const,
+        current_handler_user_id: card.confirmed_user_id,
+        confirmed_by: '',
+        confirmed_date: '',
+        reviewed_by: '',
+        reviewed_date: '',
+        approved_by: '',
+        approved_date: '',
+        last_return_comment: '确认人主动撤回审核，等待重新修改并提交。',
+      };
     case 'reject_to_prepare':
       return {
         ...base,
@@ -682,29 +684,6 @@ function getActionResult(card: CardRow, action: ApprovalAction, comment: string,
         status: 'approved' as const,
         current_step: 'approve' as const,
         current_handler_user_id: '',
-        approved_by: actor.displayName,
-        approved_date: today,
-        locked_at: now,
-      };
-    case 'submit_revision_review':
-      return {
-        ...base,
-        status: 'pending_review' as const,
-        current_step: 'review' as const,
-        current_handler_user_id: card.reviewed_user_id,
-        submitted_at: card.submitted_at || now,
-        prepared_by: actor.displayName,
-        prepared_date: today,
-      };
-    case 'activate_revision':
-      return {
-        ...base,
-        status: 'approved' as const,
-        current_step: 'approve' as const,
-        current_handler_user_id: '',
-        submitted_at: card.submitted_at || now,
-        prepared_by: actor.displayName,
-        prepared_date: today,
         approved_by: actor.displayName,
         approved_date: today,
         locked_at: now,
@@ -804,7 +783,6 @@ export class ProcessCardRepository {
     this.ensureColumn('process_cards', 'source_card_id', "TEXT NOT NULL DEFAULT ''");
     this.ensureColumn('process_cards', 'revision_reason', "TEXT NOT NULL DEFAULT ''");
     this.ensureColumn('process_cards', 'revision_effective_scope', "TEXT NOT NULL DEFAULT ''");
-    this.ensureColumn('process_cards', 'revision_type', "TEXT NOT NULL DEFAULT ''");
     this.ensureColumn('process_cards', 'superseded_by_card_id', "TEXT NOT NULL DEFAULT ''");
     this.ensureColumn('process_cards', 'last_return_comment', "TEXT NOT NULL DEFAULT ''");
   }
@@ -2498,7 +2476,6 @@ export class ProcessCardRepository {
       sourceCardId: card.source_card_id,
       revisionReason: card.revision_reason ?? '',
       revisionEffectiveScope: card.revision_effective_scope ?? '',
-      revisionType: card.revision_type ?? '',
       supersededByCardId: card.superseded_by_card_id ?? '',
       submittedAt: card.submitted_at,
       lockedAt: card.locked_at,
@@ -2668,6 +2645,7 @@ export class ProcessCardRepository {
       permissions: {
         canEdit: getPermissions(row, viewer).canEdit,
         canDelete: getPermissions(row, viewer).canDelete,
+        canWithdrawReview: getAvailableActions(row, viewer).includes('withdraw_review'),
       },
     }));
 
@@ -2833,8 +2811,11 @@ export class ProcessCardRepository {
       throw new Error('只有当前已批准的工艺卡才能发起修订。');
     }
     if (!source.permissions.canRevise) {
-      throw new Error('只有该工艺卡的批准人或管理员可以发起修订。');
+      throw new Error('只有该工艺卡的确认人、批准人或管理员可以发起修订。');
     }
+    this.assertWorkflowAssigneeExists(source.confirmedUserId, '原确认人');
+    this.assertWorkflowAssigneeExists(source.reviewedUserId, '原审核人');
+    this.assertWorkflowAssigneeExists(source.approvedUserId, '原批准人');
 
     const [existingRevision] = this.sqlite.query<{ id: string }>(
       `SELECT id FROM process_cards WHERE source_card_id = ? AND status NOT IN ('voided', 'superseded') LIMIT 1`,
@@ -2856,9 +2837,9 @@ export class ProcessCardRepository {
            delivery_date, delivery_status, standard, technical_requirements, remark, prepared_by, prepared_date,
            confirmed_by, confirmed_date, reviewed_by, reviewed_date, approved_by, approved_date, status, current_step,
            current_handler_user_id, created_by_user_id, confirmed_user_id, reviewed_user_id, approved_user_id, submitted_at,
-           locked_at, version_no, source_card_id, revision_reason, revision_effective_scope, revision_type, superseded_by_card_id,
+           locked_at, version_no, source_card_id, revision_reason, revision_effective_scope, superseded_by_card_id,
            last_return_comment, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `,
         [
           revisionId,
@@ -2876,11 +2857,13 @@ export class ProcessCardRepository {
           source.standard,
           source.technicalRequirements,
           FIXED_REMARK,
-          '', '', '', '', '', '', '', '',
-          'draft',
-          'prepare',
-          actor.id,
-          actor.id,
+          source.preparedBy,
+          source.preparedDate,
+          '', '', '', '', '', '',
+          'pending_confirm',
+          'confirm',
+          source.confirmedUserId,
+          source.createdByUserId,
           source.confirmedUserId,
           source.reviewedUserId,
           source.approvedUserId,
@@ -2890,7 +2873,6 @@ export class ProcessCardRepository {
           sourceCardId,
           request.reason,
           request.effectiveScope,
-          request.revisionType,
           '',
           '',
           now,
@@ -2905,7 +2887,7 @@ export class ProcessCardRepository {
         action: 'create_revision',
         actor,
         summary: `发起工艺卡修订：${source.planNumber} V${versionNo}`,
-        detailText: `修订类型：${request.revisionType}；修订原因：${request.reason}；生效范围：${request.effectiveScope}`,
+        detailText: `修订原因：${request.reason}；生效范围：${request.effectiveScope}；已提交原确认人修改。`,
         changes: [
           { field: '版本', before: `V${source.versionNo}`, after: `V${versionNo}` },
           { field: '修订原因', before: '-', after: request.reason },
@@ -3088,30 +3070,6 @@ export class ProcessCardRepository {
       throw new Error('当前状态下你没有执行此流程动作的权限。');
     }
 
-    if (payload.action === 'submit_revision_review' && !card.reviewed_user_id.trim()) {
-      throw new Error('请先指定审核人后再提交技术复核。');
-    }
-    if (payload.action === 'activate_revision') {
-      const diff = await this.getRevisionDiff(cardId);
-      if (!diff?.changes.length) {
-        throw new Error('修订稿还没有修改任何业务字段，不能确认生效。');
-      }
-      const criticalFields = new Set([
-        '计划单号',
-        '产品名称',
-        '材质',
-        '规格及公差（mm）',
-        '长度及公差（mm）',
-        '执行标准',
-        '技术要求',
-        '启用工序',
-      ]);
-      const criticalChanges = diff.changes.filter((change) => criticalFields.has(change.field));
-      if (criticalChanges.length > 0) {
-        throw new Error(`本次修改涉及关键内容（${criticalChanges.map((item) => item.field).join('、')}），不能按快速修订直接生效，请重新发起技术修订。`);
-      }
-    }
-
     if (payload.action === 'submit_confirm' && !card.confirmed_user_id.trim()) {
       throw new Error('请先指定确认人后再提交确认。');
     }
@@ -3154,7 +3112,7 @@ export class ProcessCardRepository {
         ],
       );
 
-      if ((payload.action === 'approve' || payload.action === 'activate_revision') && card.source_card_id) {
+      if (payload.action === 'approve' && card.source_card_id) {
         this.sqlite.run(
           `
             UPDATE process_cards

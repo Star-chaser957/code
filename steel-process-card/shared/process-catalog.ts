@@ -15,12 +15,14 @@ const createOptions = (operationCode: string, options: string[]) =>
     sortOrder: index + 1,
   }));
 
+const SHAPING_TYPES = ['圆钢/圆棒', '扁钢', '方钢', '六角钢', '八角钢', '钢管', '等边角钢', '螺纹钢'];
+
 const shapingFieldConfig = [
   {
     key: 'type',
     label: '类型',
     inputType: 'combo' as const,
-    options: ['圆钢/圆棒', '扁钢', '方钢', '六角钢', '八角钢', '钢管', '等边角钢', '螺纹钢'],
+    options: SHAPING_TYPES,
   },
   { key: 'diameterOrSideLength', label: '直径/边长（mm）' },
   { key: 'length', label: '长度（mm）' },
@@ -136,6 +138,25 @@ export const PROCESS_CATALOG: OperationDefinition[] = [
     optionCatalog: [],
   },
   {
+    code: 'cutting',
+    name: '切割',
+    defaultOrder: 65,
+    detailMode: 'single',
+    allowsMultipleDetails: false,
+    detailLabel: '产品要求',
+    fieldConfig: [
+      {
+        key: 'type',
+        label: '类型',
+        inputType: 'combo',
+        options: [...SHAPING_TYPES, '钢板'],
+      },
+      { key: 'lengthAndTolerance', label: '长度/长度公差（mm）' },
+      { key: 'widthAndTolerance', label: '宽度/宽度公差（mm）' },
+    ],
+    optionCatalog: [],
+  },
+  {
     code: 'pickling',
     name: '酸洗',
     defaultOrder: 70,
@@ -219,6 +240,25 @@ export const PROCESS_CATALOG: OperationDefinition[] = [
     fieldConfig: [
       { key: 'diameter', label: '直径（mm）' },
       { key: 'appearance', label: '外观' },
+    ],
+    optionCatalog: [],
+  },
+  {
+    code: 'bright-turning',
+    name: '车光',
+    defaultOrder: 105,
+    detailMode: 'single',
+    allowsMultipleDetails: false,
+    detailLabel: '产品要求',
+    fieldConfig: [
+      {
+        key: 'type',
+        label: '类型',
+        inputType: 'combo',
+        options: SHAPING_TYPES,
+      },
+      { key: 'diameterOrSideAndTolerance', label: '直径/边长及公差（mm）' },
+      { key: 'appearanceQualityRequirement', label: '外观质量要求' },
     ],
     optionCatalog: [],
   },
@@ -451,7 +491,6 @@ export const createEmptyProcessCard = (
   sourceCardId: '',
   revisionReason: '',
   revisionEffectiveScope: '',
-  revisionType: '',
   supersededByCardId: '',
   submittedAt: '',
   lockedAt: '',

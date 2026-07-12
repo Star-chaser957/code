@@ -1,11 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import type { ApprovalAction, OperationDefinition, ProcessCardPayload, ProcessCardRevisionDiff, RevisionType } from '../../shared/types';
+import type { ApprovalAction, OperationDefinition, ProcessCardPayload, ProcessCardRevisionDiff } from '../../shared/types';
 import {
   APPROVAL_ACTION_COMMENT_REQUIRED,
   APPROVAL_ACTION_LABELS,
   CARD_STATUS_LABELS,
-  REVISION_TYPE_LABELS,
 } from '../../shared/types';
 import { useToast } from '../components/ToastProvider';
 import { PrintTemplate } from '../components/PrintTemplate';
@@ -30,7 +29,6 @@ export function PrintPage() {
   const [revisionReason, setRevisionReason] = useState('');
   const [revisionScopePreset, setRevisionScopePreset] = useState('尚未开始生产，适用于本计划单全部产品');
   const [revisionScopeDetail, setRevisionScopeDetail] = useState('');
-  const [revisionType, setRevisionType] = useState<RevisionType>('quick');
   const [revisionDiff, setRevisionDiff] = useState<ProcessCardRevisionDiff | null>(null);
   const [revisionDialogOpen, setRevisionDialogOpen] = useState(false);
   const [previewScale, setPreviewScale] = useState(0.9);
@@ -116,6 +114,9 @@ export function PrintPage() {
       });
       window.dispatchEvent(new Event('notifications:changed'));
       setError('');
+      if (action === 'withdraw_review' && updated.id) {
+        navigate(`/cards/${updated.id}/edit`);
+      }
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '审批提交失败');
     } finally {
@@ -139,13 +140,12 @@ export function PrintPage() {
     setSaving(true);
     try {
       const revision = await api.createProcessCardRevision(card.id, {
-        revisionType,
         reason: revisionReason.trim(),
         effectiveScope,
       });
       setRevisionDialogOpen(false);
-      pushToast({ tone: 'success', title: '修订稿已创建', description: `已生成 V${revision.versionNo}，请完成修改后重新提交审批。` });
-      navigate(`/cards/${revision.id}/edit`);
+      pushToast({ tone: 'success', title: '修订已发起', description: `已生成 V${revision.versionNo}，当前已交给原确认人修改。` });
+      navigate(revision.permissions.canEdit ? `/cards/${revision.id}/edit` : `/cards/${revision.id}/print`);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '创建修订稿失败');
     } finally {
@@ -240,7 +240,6 @@ export function PrintPage() {
             <details className="panel print-review-panel review-disclosure">
               <summary><span><strong>版本信息</strong><small>V{revisionDiff?.sourceVersionNo ?? card.versionNo - 1} → V{card.versionNo}</small></span><span>展开</span></summary>
               <dl className="revision-meta">
-                <div><dt>修订类型</dt><dd>{card.revisionType ? REVISION_TYPE_LABELS[card.revisionType] : '-'}</dd></div>
                 <div><dt>修订原因</dt><dd>{card.revisionReason || '-'}</dd></div>
                 <div><dt>生效范围</dt><dd>{card.revisionEffectiveScope || '-'}</dd></div>
               </dl>
@@ -277,16 +276,8 @@ export function PrintPage() {
       {revisionDialogOpen ? (
         <div className="modal-backdrop no-print" role="presentation" onMouseDown={() => setRevisionDialogOpen(false)}>
           <section className="modal-card revision-dialog" role="dialog" aria-modal="true" aria-labelledby="revision-dialog-title" onMouseDown={(event) => event.stopPropagation()}>
-            <div className="panel__header"><div><h3 id="revision-dialog-title">发起 V{card.versionNo + 1} 受控修订</h3><span>原批准版本不会被覆盖，请根据修改影响选择合适的修订流程。</span></div></div>
+            <div className="panel__header"><div><h3 id="revision-dialog-title">发起 V{card.versionNo + 1} 受控修订</h3><span>新版本将交给原确认人修改，再依次提交审核和批准；原编制人保持不变。</span></div></div>
             <div className="stack stack--compact">
-              <div className="revision-type-options">
-                {(Object.keys(REVISION_TYPE_LABELS) as RevisionType[]).map((type) => (
-                  <button key={type} type="button" className={`revision-type-option ${revisionType === type ? 'is-active' : ''}`} onClick={() => setRevisionType(type)}>
-                    <strong>{REVISION_TYPE_LABELS[type]}</strong>
-                    <span>{type === 'quick' ? '批准人修改后直接确认生效，关键字段不能使用。' : type === 'technical' ? '批准人修改，审核人技术复核，批准人最终确认。' : '重新经过编制、确认、审核和批准完整流程。'}</span>
-                  </button>
-                ))}
-              </div>
               <label className="field"><span>修订原因</span><textarea className="textarea--fixed" value={revisionReason} onChange={(event) => setRevisionReason(event.target.value)} placeholder="说明为什么当前工艺无法落实" autoFocus /></label>
               <label className="field"><span>生效范围（新版本从哪里开始适用）</span>
                 <select value={revisionScopePreset} onChange={(event) => setRevisionScopePreset(event.target.value)}>

@@ -22,15 +22,12 @@ export type ApprovalAction =
   | 'submit_confirm'
   | 'return_prepare'
   | 'submit_review'
+  | 'withdraw_review'
   | 'reject_to_prepare'
   | 'reject_to_confirm'
   | 'submit_approve'
   | 'reject_to_review'
-  | 'approve'
-  | 'submit_revision_review'
-  | 'activate_revision';
-
-export type RevisionType = 'quick' | 'technical' | 'major';
+  | 'approve';
 
 export type OperationFieldDefinition = {
   key: string;
@@ -106,7 +103,6 @@ export type CardPermissions = {
 };
 
 export type ProcessCardRevisionRequest = {
-  revisionType: RevisionType;
   reason: string;
   effectiveScope: string;
 };
@@ -155,7 +151,6 @@ export type ProcessCardPayload = {
   sourceCardId: string;
   revisionReason: string;
   revisionEffectiveScope: string;
-  revisionType: RevisionType | '';
   supersededByCardId: string;
   submittedAt: string;
   lockedAt: string;
@@ -209,7 +204,9 @@ export type ProcessCardListItem = {
   lastReturnComment: string;
   enabledOperationCodes: string[];
   heatTreatmentTypes: string[];
-  permissions: Pick<CardPermissions, 'canEdit' | 'canDelete'>;
+  permissions: Pick<CardPermissions, 'canEdit' | 'canDelete'> & {
+    canWithdrawReview: boolean;
+  };
 };
 
 export type DepartmentOption = {
@@ -425,23 +422,17 @@ export const CARD_STATUS_LABELS: Record<CardWorkflowStatus, string> = {
   rejected_to_review: '退回审核',
 };
 
-export const REVISION_TYPE_LABELS: Record<RevisionType, string> = {
-  quick: '快速修订',
-  technical: '技术修订',
-  major: '重大变更',
-};
 
 export const APPROVAL_ACTION_LABELS: Record<ApprovalAction, string> = {
   submit_confirm: '提交确认',
   return_prepare: '退回编制',
   submit_review: '提交审核',
+  withdraw_review: '撤回审核',
   reject_to_prepare: '驳回编制',
   reject_to_confirm: '驳回确认',
   submit_approve: '提交批准',
   reject_to_review: '退回审核',
   approve: '批准通过',
-  submit_revision_review: '提交技术复核',
-  activate_revision: '确认修订生效',
 };
 
 export const APPROVAL_ACTION_COMMENT_REQUIRED: ApprovalAction[] = [

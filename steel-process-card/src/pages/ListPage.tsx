@@ -146,6 +146,18 @@ export function ListPage() {
     await loadCards({ ...filters, keyword: deferredKeyword });
   };
 
+  const handleWithdrawReview = async (id: string) => {
+    if (!window.confirm('确认撤回已提交的审核吗？撤回后可以继续编辑并重新提交。')) {
+      return;
+    }
+    try {
+      await api.performApprovalAction(id, { action: 'withdraw_review', comment: '' });
+      navigate(`/cards/${id}/edit`);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : '撤回审核失败');
+    }
+  };
+
   const handleForceDelete = async (id: string) => {
     if (!window.confirm('确认强制删除这张工艺卡吗？该操作不可恢复。')) {
       return;
@@ -430,6 +442,11 @@ export function ListPage() {
                     {item.permissions.canDelete ? (
                       <button type="button" className="link-button danger" onClick={() => void handleDelete(item.id)}>
                         删除
+                      </button>
+                    ) : null}
+                    {item.permissions.canWithdrawReview ? (
+                      <button type="button" className="link-button" onClick={() => void handleWithdrawReview(item.id)}>
+                        撤回审核
                       </button>
                     ) : null}
                     {isAdmin && item.status !== 'voided' ? (
