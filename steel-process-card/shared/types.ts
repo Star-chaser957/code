@@ -32,6 +32,7 @@ export type ApprovalAction =
 export type OperationFieldDefinition = {
   key: string;
   label: string;
+  printLabel?: string;
   unit?: string;
   placeholder?: string;
   inputType?: 'text' | 'select' | 'combo' | 'textarea';

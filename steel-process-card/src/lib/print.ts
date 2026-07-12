@@ -8,6 +8,23 @@ import type {
 const filledMark = '■';
 const emptyMark = '□';
 
+export function formatPrintValueWithUnit(value: string, unit?: string) {
+  if (!unit) {
+    return value;
+  }
+  const suffixPatterns: Record<string, RegExp> = {
+    mm: /(?:\(mm\)|（mm）|mm|毫米)\s*$/i,
+    kg: /(?:\(kg\)|（kg）|kg|千克|公斤)\s*$/i,
+    支: /(?:\(支\)|（支）|支)\s*$/,
+    '℃': /(?:\(℃\)|（℃）|℃|°c)\s*$/i,
+    h: /(?:\(h\)|（h）|h|小时)\s*$/i,
+    'μm': /(?:\(μm\)|（μm）|μm|um)\s*$/i,
+    'mm/m': /(?:\(mm\/m\)|（mm\/m）|mm\/m)\s*$/i,
+  };
+  const normalized = value.replace(suffixPatterns[unit] ?? new RegExp(`\\(${unit}\\)$`), '').trim();
+  return `${normalized}(${unit})`;
+}
+
 function isFieldVisible(field: OperationFieldDefinition, detail: OperationDetail) {
   if (field.showForDetailTypes && !field.showForDetailTypes.includes(detail.detailType)) {
     return false;
@@ -29,7 +46,7 @@ const compactFieldText = (
     .filter((field) => isFieldVisible(field, { detailSeq: 0, detailType, params }))
     .map((field) => {
       const value = params[field.key]?.trim();
-      return value ? `${field.label}：${value}` : '';
+      return value ? `${field.printLabel ?? field.label}：${formatPrintValueWithUnit(value, field.unit)}` : '';
     })
     .filter(Boolean);
 

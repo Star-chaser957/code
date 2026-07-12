@@ -1,22 +1,12 @@
 import { CARD_STATUS_LABELS, FIXED_REMARK } from '../../shared/types';
 import type { OperationDefinition, ProcessCardPayload } from '../../shared/types';
-import { buildPrintCells } from '../lib/print';
+import { buildPrintCells, formatPrintValueWithUnit } from '../lib/print';
 
 type PrintTemplateProps = {
   card: ProcessCardPayload;
   definitions: OperationDefinition[];
   logoSrc?: string;
 };
-
-function withUnit(value: string, unit: 'mm' | 'kg') {
-  const trimmed = value.trim();
-  if (!trimmed) {
-    return '';
-  }
-
-  const unitPattern = unit === 'mm' ? /(mm|毫米)/i : /(kg|千克|公斤)/i;
-  return unitPattern.test(trimmed) ? trimmed : `${trimmed}${unit}`;
-}
 
 export function PrintTemplate({
   card,
@@ -63,18 +53,18 @@ export function PrintTemplate({
           <tr>
             <th>产品名称</th>
             <td>{card.productName}</td>
-            <th>规格及公差（mm）</th>
-            <td>{withUnit(card.specification, 'mm')}</td>
+            <th>规格</th>
+            <td>{card.specification.trim() ? formatPrintValueWithUnit(card.specification.trim(), 'mm') : ''}</td>
             <th>交付日期</th>
             <td>{card.deliveryDate}</td>
           </tr>
           <tr>
             <th>材质</th>
             <td>{card.material}</td>
-            <th>长度及公差（mm）</th>
-            <td>{withUnit(card.lengthTolerance, 'mm')}</td>
-            <th>数量（kg）</th>
-            <td>{withUnit(card.quantity, 'kg')}</td>
+            <th>长度</th>
+            <td>{card.lengthTolerance.trim() ? formatPrintValueWithUnit(card.lengthTolerance.trim(), 'mm') : ''}</td>
+            <th>数量</th>
+            <td>{card.quantity.trim() ? formatPrintValueWithUnit(card.quantity.trim(), 'kg') : ''}</td>
           </tr>
           <tr>
             <th>交货状态</th>
