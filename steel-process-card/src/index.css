@@ -2225,10 +2225,6 @@ a {
   backdrop-filter: blur(12px);
 }
 
-.page--editor:has(.page-actions--sticky) {
-  padding-bottom: 132px;
-}
-
 .is-sidebar-collapsed .page-actions--sticky {
   left: 92px;
 }
@@ -2275,6 +2271,12 @@ a {
   align-items: center;
   flex-wrap: wrap;
   gap: 8px;
+  position: relative;
+  z-index: 1;
+}
+
+.pagination__buttons .button {
+  touch-action: manipulation;
 }
 
 .pagination__summary {
@@ -2595,7 +2597,7 @@ a {
     max-height: none;
   }
 
-  .print-shell:has(.print-review-panel--action) {
+  .print-shell--has-action {
     padding-bottom: 190px;
   }
 

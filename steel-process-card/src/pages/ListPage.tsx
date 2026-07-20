@@ -1,4 +1,4 @@
-import { useDeferredValue, useEffect, useMemo, useState } from 'react';
+import { useDeferredValue, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import type {
   OperationDefinition,
@@ -21,6 +21,7 @@ export function ListPage() {
   const [error, setError] = useState('');
   const [batchHint, setBatchHint] = useState('');
   const [pagination, setPagination] = useState({ page: 1, pageSize: 20, total: 0, totalPages: 1 });
+  const requestSequenceRef = useRef(0);
   const [filters, setFilters] = useState<ProcessCardListFilters>({
     keyword: '',
     planNumber: '',
@@ -48,10 +49,14 @@ export function ListPage() {
     allVisibleIds.length > 0 && allVisibleIds.every((id) => selectedIds.includes(id));
 
   const loadCards = async (nextFilters: ProcessCardListFilters) => {
+    const requestSequence = ++requestSequenceRef.current;
     setLoading(true);
 
     try {
       const response = await api.listProcessCards(nextFilters);
+      if (requestSequence !== requestSequenceRef.current) {
+        return;
+      }
       setCards(response.items);
       setPagination({
         page: response.page,
@@ -61,18 +66,38 @@ export function ListPage() {
       });
       setError('');
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : '列表加载失败');
+      if (requestSequence === requestSequenceRef.current) {
+        setError(reason instanceof Error ? reason.message : '列表加载失败');
+      }
     } finally {
-      setLoading(false);
+      if (requestSequence === requestSequenceRef.current) {
+        setLoading(false);
+      }
     }
   };
+  const loadCardsEffect = useEffectEvent(loadCards);
 
   useEffect(() => {
     void api.getOperationDefinitions().then((response) => setDefinitions(response.items));
   }, []);
 
   useEffect(() => {
-    void loadCards({ ...filters, keyword: deferredKeyword });
+    void loadCardsEffect({
+      keyword: deferredKeyword,
+      planNumber: filters.planNumber,
+      customerCode: filters.customerCode,
+      productName: filters.productName,
+      material: filters.material,
+      specification: filters.specification,
+      deliveryDate: filters.deliveryDate,
+      operationCode: filters.operationCode,
+      heatTreatmentType: filters.heatTreatmentType,
+      status: filters.status,
+      sortBy: filters.sortBy,
+      sortDirection: filters.sortDirection,
+      page: filters.page,
+      pageSize: filters.pageSize,
+    });
   }, [
     deferredKeyword,
     filters.customerCode,
@@ -102,6 +127,12 @@ export function ListPage() {
       sortDirection: current.sortBy === sortBy && current.sortDirection === 'asc' ? 'desc' : 'asc',
       page: 1,
     }));
+  };
+
+  const changePage = (nextPage: number) => {
+    const safePage = Math.min(Math.max(1, nextPage), pagination.totalPages);
+    setSelectedIds([]);
+    setFilters((current) => ({ ...current, page: safePage }));
   };
 
   const sortMark = (sortBy: NonNullable<ProcessCardListFilters['sortBy']>) =>
@@ -489,11 +520,11 @@ export function ListPage() {
             <span>共 {pagination.total} 条</span>
           </div>
           <div className="pagination__buttons">
-            <button type="button" className="button button--small button--ghost" disabled={loading || pagination.page <= 1} onClick={() => setFilters((current) => ({ ...current, page: 1 }))}>首页</button>
-            <button type="button" className="button button--small button--ghost" disabled={loading || pagination.page <= 1} onClick={() => setFilters((current) => ({ ...current, page: pagination.page - 1 }))}>上一页</button>
+            <button type="button" className="button button--small button--ghost" disabled={loading || pagination.page <= 1} onClick={() => changePage(1)}>首页</button>
+            <button type="button" className="button button--small button--ghost" disabled={loading || pagination.page <= 1} onClick={() => changePage(pagination.page - 1)}>上一页</button>
             <span className="pagination__current">第 {pagination.page} / {pagination.totalPages} 页</span>
-            <button type="button" className="button button--small button--ghost" disabled={loading || pagination.page >= pagination.totalPages} onClick={() => setFilters((current) => ({ ...current, page: pagination.page + 1 }))}>下一页</button>
-            <button type="button" className="button button--small button--ghost" disabled={loading || pagination.page >= pagination.totalPages} onClick={() => setFilters((current) => ({ ...current, page: pagination.totalPages }))}>末页</button>
+            <button type="button" className="button button--small button--ghost" disabled={loading || pagination.page >= pagination.totalPages} onClick={() => changePage(pagination.page + 1)}>下一页</button>
+            <button type="button" className="button button--small button--ghost" disabled={loading || pagination.page >= pagination.totalPages} onClick={() => changePage(pagination.totalPages)}>末页</button>
           </div>
         </div>
       </section>

@@ -73,6 +73,11 @@ export function PrintPage() {
       setPreviewScale(Math.min(1, Math.max(0.55, availableWidth / pageWidth)));
     };
     updateScale();
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', updateScale);
+      return () => window.removeEventListener('resize', updateScale);
+    }
+
     const observer = new ResizeObserver(updateScale);
     observer.observe(container);
     return () => observer.disconnect();
@@ -170,7 +175,7 @@ export function PrintPage() {
   }
 
   return (
-    <div className="print-shell">
+    <div className={`print-shell ${card.permissions.availableActions.length > 0 ? 'print-shell--has-action' : ''}`}>
       <div className="print-toolbar no-print">
         <div>
           <h2>{card.planNumber || '工艺卡预览'}</h2>
