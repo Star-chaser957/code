@@ -1,6 +1,7 @@
 import { useDeferredValue, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import type {
+  CardWorkflowStatus,
   OperationDefinition,
   ProcessCardListFilters,
   ProcessCardListItem,
@@ -10,8 +11,93 @@ import { useAuth } from '../auth/AuthProvider';
 import { api } from '../lib/api';
 import { exportProcessCardsZip } from '../lib/batch-export';
 
+const DEFAULT_LIST_FILTERS: ProcessCardListFilters = {
+  keyword: '',
+  planNumber: '',
+  customerCode: '',
+  productName: '',
+  material: '',
+  specification: '',
+  deliveryDate: '',
+  operationCode: '',
+  heatTreatmentType: '',
+  status: '',
+  sortBy: 'createdAt',
+  sortDirection: 'desc',
+  page: 1,
+  pageSize: 20,
+};
+
+const SORT_FIELDS = new Set<NonNullable<ProcessCardListFilters['sortBy']>>([
+  'planNumber',
+  'productName',
+  'deliveryDate',
+  'status',
+  'createdAt',
+  'updatedAt',
+]);
+
+function readPositiveInteger(value: string | null, fallback: number) {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function readListFilters(searchParams: URLSearchParams): ProcessCardListFilters {
+  const sortBy = searchParams.get('sortBy') as NonNullable<ProcessCardListFilters['sortBy']> | null;
+  const status = searchParams.get('status') ?? '';
+  const sortDirection = searchParams.get('sortDirection');
+
+  return {
+    ...DEFAULT_LIST_FILTERS,
+    keyword: searchParams.get('keyword') ?? '',
+    planNumber: searchParams.get('planNumber') ?? '',
+    customerCode: searchParams.get('customerCode') ?? '',
+    productName: searchParams.get('productName') ?? '',
+    material: searchParams.get('material') ?? '',
+    specification: searchParams.get('specification') ?? '',
+    deliveryDate: searchParams.get('deliveryDate') ?? '',
+    operationCode: searchParams.get('operationCode') ?? '',
+    heatTreatmentType: searchParams.get('heatTreatmentType') ?? '',
+    status: status in CARD_STATUS_LABELS ? (status as CardWorkflowStatus) : '',
+    sortBy: sortBy && SORT_FIELDS.has(sortBy) ? sortBy : DEFAULT_LIST_FILTERS.sortBy,
+    sortDirection: sortDirection === 'asc' || sortDirection === 'desc' ? sortDirection : 'desc',
+    page: readPositiveInteger(searchParams.get('page'), 1),
+    pageSize: readPositiveInteger(searchParams.get('pageSize'), 20),
+  };
+}
+
+function writeListFilters(filters: ProcessCardListFilters) {
+  const searchParams = new URLSearchParams();
+  const textFields = [
+    'keyword',
+    'planNumber',
+    'customerCode',
+    'productName',
+    'material',
+    'specification',
+    'deliveryDate',
+    'operationCode',
+    'heatTreatmentType',
+    'status',
+  ] as const;
+
+  textFields.forEach((field) => {
+    const value = filters[field];
+    if (value) {
+      searchParams.set(field, value);
+    }
+  });
+  searchParams.set('sortBy', filters.sortBy ?? 'createdAt');
+  searchParams.set('sortDirection', filters.sortDirection ?? 'desc');
+  searchParams.set('page', String(filters.page ?? 1));
+  searchParams.set('pageSize', String(filters.pageSize ?? 20));
+  return searchParams;
+}
+
 export function ListPage() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { hasWorkflowRole, isAdmin } = useAuth();
   const [definitions, setDefinitions] = useState<OperationDefinition[]>([]);
   const [cards, setCards] = useState<ProcessCardListItem[]>([]);
@@ -22,22 +108,7 @@ export function ListPage() {
   const [batchHint, setBatchHint] = useState('');
   const [pagination, setPagination] = useState({ page: 1, pageSize: 20, total: 0, totalPages: 1 });
   const requestSequenceRef = useRef(0);
-  const [filters, setFilters] = useState<ProcessCardListFilters>({
-    keyword: '',
-    planNumber: '',
-    customerCode: '',
-    productName: '',
-    material: '',
-    specification: '',
-    deliveryDate: '',
-    operationCode: '',
-    heatTreatmentType: '',
-    status: '',
-    sortBy: 'createdAt',
-    sortDirection: 'desc',
-    page: 1,
-    pageSize: 20,
-  });
+  const [filters, setFilters] = useState<ProcessCardListFilters>(() => readListFilters(searchParams));
 
   const deferredKeyword = useDeferredValue(filters.keyword ?? '');
   const definitionMap = useMemo(
@@ -80,6 +151,13 @@ export function ListPage() {
   useEffect(() => {
     void api.getOperationDefinitions().then((response) => setDefinitions(response.items));
   }, []);
+
+  useEffect(() => {
+    const nextSearchParams = writeListFilters(filters);
+    if (nextSearchParams.toString() !== searchParams.toString()) {
+      setSearchParams(nextSearchParams, { replace: true });
+    }
+  }, [filters, searchParams, setSearchParams]);
 
   useEffect(() => {
     void loadCardsEffect({
@@ -133,6 +211,13 @@ export function ListPage() {
     const safePage = Math.min(Math.max(1, nextPage), pagination.totalPages);
     setSelectedIds([]);
     setFilters((current) => ({ ...current, page: safePage }));
+  };
+
+  const openPreview = (id: string) => {
+    const currentSearchParams = writeListFilters(filters);
+    navigate(`/cards/${id}/print`, {
+      state: { listReturnTo: `${location.pathname}?${currentSearchParams.toString()}` },
+    });
   };
 
   const sortMark = (sortBy: NonNullable<ProcessCardListFilters['sortBy']>) =>
@@ -456,7 +541,7 @@ export function ListPage() {
                         <button
                           type="button"
                           className="link-button"
-                          onClick={() => navigate(`/cards/${item.id}/print`)}
+                          onClick={() => openPreview(item.id)}
                         >
                           查看
                         </button>
@@ -465,7 +550,7 @@ export function ListPage() {
                       <button
                         type="button"
                         className="link-button"
-                        onClick={() => navigate(`/cards/${item.id}/print`)}
+                        onClick={() => openPreview(item.id)}
                       >
                         审阅
                       </button>

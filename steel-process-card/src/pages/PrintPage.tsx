@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import type { ApprovalAction, OperationDefinition, ProcessCardPayload, ProcessCardRevisionDiff } from '../../shared/types';
 import {
   APPROVAL_ACTION_COMMENT_REQUIRED,
@@ -21,6 +21,7 @@ function isReturnApprovalAction(action: ApprovalAction) {
 export function PrintPage() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const { pushToast } = useToast();
   const [definitions, setDefinitions] = useState<OperationDefinition[]>([]);
   const [card, setCard] = useState<ProcessCardPayload | null>(null);
@@ -36,6 +37,10 @@ export function PrintPage() {
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const previewContainerRef = useRef<HTMLDivElement>(null);
+  const locationState = location.state as { listReturnTo?: string } | null;
+  const listReturnTo = locationState?.listReturnTo?.startsWith('/cards')
+    ? locationState.listReturnTo
+    : '/cards';
 
   useEffect(() => {
     if (!id) {
@@ -150,7 +155,9 @@ export function PrintPage() {
       });
       setRevisionDialogOpen(false);
       pushToast({ tone: 'success', title: '修订已发起', description: `已生成 V${revision.versionNo}，当前已交给原确认人修改。` });
-      navigate(revision.permissions.canEdit ? `/cards/${revision.id}/edit` : `/cards/${revision.id}/print`);
+      navigate(revision.permissions.canEdit ? `/cards/${revision.id}/edit` : `/cards/${revision.id}/print`, {
+        state: { listReturnTo },
+      });
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '创建修订稿失败');
     } finally {
@@ -182,7 +189,7 @@ export function PrintPage() {
           <p><strong>V{card.versionNo}</strong><span className="review-status-badge">{CARD_STATUS_LABELS[card.status]}</span>{card.currentHandlerName ? `当前处理人：${card.currentHandlerName}` : ''}</p>
         </div>
         <div className="review-toolbar-actions">
-          <Link to={card.permissions.canEdit ? `/cards/${card.id}/edit` : '/'} className="button">
+          <Link to={listReturnTo} replace className="button">
             返回列表
           </Link>
           <div className="review-zoom-controls">
@@ -254,7 +261,15 @@ export function PrintPage() {
                   <div className="revision-change" key={change.field}><b>{change.field}</b><span className="revision-change__before">原：{change.before}</span><span className="revision-change__after">新：{change.after}</span></div>
                 ))}
               </div>
-              {card.sourceCardId ? <Link className="link-button" to={`/cards/${card.sourceCardId}/print`}>查看上一版本</Link> : null}
+              {card.sourceCardId ? (
+                <Link
+                  className="link-button"
+                  to={`/cards/${card.sourceCardId}/print`}
+                  state={{ listReturnTo }}
+                >
+                  查看上一版本
+                </Link>
+              ) : null}
             </details>
           ) : null}
 
