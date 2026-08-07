@@ -32,6 +32,46 @@ export const processCardRoutes: FastifyPluginAsync = async (fastify) => {
     };
   });
 
+  fastify.get('/workflow/next-task', async (request, reply) => {
+    const user = await requireAuth(request, reply);
+    if (!user) {
+      return;
+    }
+
+    const { excludeId = '', step = 'approve' } = request.query as { excludeId?: string; step?: string };
+    if (step !== 'review' && step !== 'approve') {
+      reply.code(400);
+      return { message: '不支持的流程步骤。' };
+    }
+    return repository.getNextPendingWorkflowTask(user, step, excludeId);
+  });
+
+  fastify.get('/:id/production-plan', async (request, reply) => {
+    const user = await requireAuth(request, reply);
+    if (!user) {
+      return;
+    }
+
+    const { id } = request.params as { id: string };
+    const card = await repository.getProcessCard(id, user);
+    if (!card) {
+      reply.code(404);
+      return { message: '工艺卡不存在。' };
+    }
+    return { item: repository.getProductionPlanForCard(id) };
+  });
+
+  fastify.put('/:id/production-plan', async (request, reply) => {
+    const user = await requireAuth(request, reply);
+    if (!user) {
+      return;
+    }
+
+    const { id } = request.params as { id: string };
+    const { productionPlanId = '' } = request.body as { productionPlanId?: string };
+    return repository.linkProductionPlanToCard(id, productionPlanId, user);
+  });
+
   fastify.get('/:id', async (request, reply) => {
     const user = await requireAuth(request, reply);
     if (!user) {

@@ -11,6 +11,7 @@ import { AuditLogPage } from './pages/AuditLogPage';
 import { AccountPasswordPage } from './pages/AccountPasswordPage';
 import { SettingsDepartmentsPage } from './pages/SettingsDepartmentsPage';
 import { UserManagementPage } from './pages/UserManagementPage';
+import { ProductionPlanPage } from './pages/ProductionPlanPage';
 
 export default function App() {
   return (
@@ -34,6 +35,7 @@ export default function App() {
         <Route path="/messages" element={<MessagesPage />} />
         <Route path="/account/password" element={<AccountPasswordPage />} />
         <Route path="/cards" element={<ListPage />} />
+        <Route path="/production-plans" element={<ProductionPlanPage />} />
         <Route path="/cards/new" element={<EditorPage />} />
         <Route path="/cards/:id/edit" element={<EditorPage />} />
         <Route path="/settings/departments" element={<SettingsDepartmentsPage />} />

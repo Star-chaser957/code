@@ -119,13 +119,13 @@ export function PrintTemplate({
                 <td>{operation.department}</td>
                 <td>{operation.specialCharacteristic}</td>
                 <td>
-                  {cells.processLines.map((line) => (
-                    <div key={line}>{line}</div>
+                  {cells.processLines.map((line, lineIndex) => (
+                    <div key={`${lineIndex}-${line}`}>{line}</div>
                   ))}
                 </td>
                 <td>
-                  {cells.qualityLines.map((line) => (
-                    <div key={line}>{line}</div>
+                  {cells.qualityLines.map((line, lineIndex) => (
+                    <div key={`${lineIndex}-${line}`}>{line}</div>
                   ))}
                 </td>
                 <td>{operation.deliveryTime}</td>

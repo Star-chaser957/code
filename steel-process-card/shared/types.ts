@@ -391,6 +391,35 @@ export type ApprovalActionRequest = {
   comment?: string;
 };
 
+export type NextPendingApprovalResponse = {
+  id: string | null;
+};
+
+export type ProductionPlanAttachment = {
+  id: string;
+  planNumber: string;
+  fileName: string;
+  mimeType: string;
+  size: number;
+  uploadedByName: string;
+  createdAt: string;
+  linkedCardCount: number;
+};
+
+export type ProductionPlanCardSummary = {
+  id: string;
+  businessCardId: string;
+  productName: string;
+  material: string;
+  specification: string;
+  versionNo: number;
+  status: CardWorkflowStatus;
+};
+
+export type ProductionPlanCardRelations = {
+  linked: ProductionPlanCardSummary[];
+};
+
 export const FIXED_REMARK = '特性符号：关键特性S，重要特性■，过程特性△。';
 
 export const DEFAULT_DEPARTMENT_OPTIONS = [

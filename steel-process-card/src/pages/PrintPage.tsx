@@ -1,11 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
-import type { ApprovalAction, OperationDefinition, ProcessCardPayload, ProcessCardRevisionDiff } from '../../shared/types';
+import type { ApprovalAction, OperationDefinition, ProcessCardPayload, ProcessCardRevisionDiff, ProductionPlanAttachment } from '../../shared/types';
 import {
   APPROVAL_ACTION_COMMENT_REQUIRED,
   APPROVAL_ACTION_LABELS,
   CARD_STATUS_LABELS,
 } from '../../shared/types';
+import { useAuth } from '../auth/AuthProvider';
+import { ReturnReasonDialog } from '../components/ReturnReasonDialog';
+import { ProductionPlanAttachmentPanel, ProductionPlanPreviewDialog } from '../components/ProductionPlanAttachmentPanel';
 import { useToast } from '../components/ToastProvider';
 import { PrintTemplate } from '../components/PrintTemplate';
 import { api } from '../lib/api';
@@ -23,6 +26,7 @@ export function PrintPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const { pushToast } = useToast();
+  const { user } = useAuth();
   const [definitions, setDefinitions] = useState<OperationDefinition[]>([]);
   const [card, setCard] = useState<ProcessCardPayload | null>(null);
   const [approvalComment, setApprovalComment] = useState('');
@@ -36,6 +40,11 @@ export function PrintPage() {
   const [autoFit, setAutoFit] = useState(true);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [returnReasonOpen, setReturnReasonOpen] = useState(false);
+  const [productionPlan, setProductionPlan] = useState<ProductionPlanAttachment | null>(null);
+  const [productionPlanPreviewUrl, setProductionPlanPreviewUrl] = useState('');
+  const [productionPlanPreviewOpen, setProductionPlanPreviewOpen] = useState(false);
+  const [productionPlanLoading, setProductionPlanLoading] = useState(false);
   const previewContainerRef = useRef<HTMLDivElement>(null);
   const locationState = location.state as { listReturnTo?: string } | null;
   const listReturnTo = locationState?.listReturnTo?.startsWith('/cards')
@@ -49,14 +58,16 @@ export function PrintPage() {
 
     const load = async () => {
       try {
-        const [definitionResponse, detail, diff] = await Promise.all([
+        const [definitionResponse, detail, diff, attachmentResponse] = await Promise.all([
           api.getOperationDefinitions(),
           api.getProcessCard(id),
           api.getProcessCardRevisionDiff(id),
+          api.getCardProductionPlan(id),
         ]);
         setDefinitions(definitionResponse.items);
         setCard(detail);
         setRevisionDiff(diff);
+        setProductionPlan(attachmentResponse.item);
         setError('');
       } catch (reason) {
         setError(reason instanceof Error ? reason.message : '打印预览加载失败');
@@ -65,6 +76,48 @@ export function PrintPage() {
 
     void load();
   }, [id]);
+
+  useEffect(() => {
+    let active = true;
+    let objectUrl = '';
+    if (!id || !productionPlan) {
+      setProductionPlanPreviewUrl('');
+      return;
+    }
+
+    setProductionPlanLoading(true);
+    void api.getProductionPlanContent(productionPlan.id)
+      .then((blob) => {
+        objectUrl = URL.createObjectURL(blob);
+        if (active) {
+          setProductionPlanPreviewUrl(objectUrl);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setProductionPlanPreviewUrl('');
+        }
+      })
+      .finally(() => {
+        if (active) {
+          setProductionPlanLoading(false);
+        }
+      });
+
+    return () => {
+      active = false;
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl);
+      }
+    };
+  }, [id, productionPlan]);
+
+  useEffect(() => {
+    const isReturned = card?.status === 'rejected_to_prepare'
+      || card?.status === 'rejected_to_confirm'
+      || card?.status === 'rejected_to_review';
+    setReturnReasonOpen(Boolean(isReturned && card?.currentHandlerUserId === user?.id && card.lastReturnComment.trim()));
+  }, [card?.currentHandlerUserId, card?.id, card?.lastReturnComment, card?.status, user?.id]);
 
   useEffect(() => {
     const container = previewContainerRef.current;
@@ -104,6 +157,7 @@ export function PrintPage() {
       return;
     }
 
+    const handledStep = card.currentStep;
     setSaving(true);
     try {
       if (APPROVAL_ACTION_COMMENT_REQUIRED.includes(action) && !approvalComment.trim()) {
@@ -119,11 +173,32 @@ export function PrintPage() {
       setMessage(`流程动作“${APPROVAL_ACTION_LABELS[action]}”已完成。`);
       pushToast({
         tone: 'success',
-        title: '审批已完成',
+        title: '流程处理已完成',
         description: `已执行“${APPROVAL_ACTION_LABELS[action]}”`,
       });
       window.dispatchEvent(new Event('notifications:changed'));
       setError('');
+      const continuousStep = action !== 'withdraw_review' && (handledStep === 'review' || handledStep === 'approve')
+        ? handledStep
+        : null;
+      if (continuousStep) {
+        try {
+          const next = await api.getNextPendingWorkflowTask(continuousStep, updated.id!);
+          if (next.id) {
+            const stepLabel = continuousStep === 'review' ? '审核' : '批准';
+            pushToast({
+              tone: 'success',
+              title: `已进入下一张待${stepLabel}工艺卡`,
+              description: `当前${stepLabel}任务已完成，正在继续处理下一张。`,
+            });
+            navigate(`/cards/${next.id}/print`, { replace: true, state: { listReturnTo } });
+            return;
+          }
+        } catch {
+          const stepLabel = continuousStep === 'review' ? '审核' : '批准';
+          setError(`当前工艺卡已完成${stepLabel}，但下一张待${stepLabel}工艺卡加载失败，请从工作台继续进入。`);
+        }
+      }
       if (action === 'withdraw_review' && updated.id) {
         navigate(`/cards/${updated.id}/edit`);
       }
@@ -183,6 +258,22 @@ export function PrintPage() {
 
   return (
     <div className={`print-shell ${card.permissions.availableActions.length > 0 ? 'print-shell--has-action' : ''}`}>
+      <ReturnReasonDialog
+        open={returnReasonOpen}
+        cardTitle={card.planNumber || card.productName || '当前工艺卡'}
+        reason={card.lastReturnComment}
+        onClose={() => setReturnReasonOpen(false)}
+        onEdit={card.permissions.canEdit && card.id
+          ? () => navigate(`/cards/${card.id}/edit`, { state: { listReturnTo } })
+          : undefined}
+      />
+      <ProductionPlanPreviewDialog
+        open={productionPlanPreviewOpen}
+        previewUrl={productionPlanPreviewUrl}
+        mimeType={productionPlan?.mimeType || ''}
+        fileName={productionPlan?.planNumber || '生产计划单'}
+        onClose={() => setProductionPlanPreviewOpen(false)}
+      />
       <div className="print-toolbar no-print">
         <div>
           <h2>{card.planNumber || '工艺卡预览'}</h2>
@@ -216,6 +307,21 @@ export function PrintPage() {
         </div>
 
         <aside className="print-review-sidebar no-print">
+          {productionPlan ? (
+            <section className="panel print-review-panel production-plan-review-panel">
+              <div className="panel__header">
+                <div><h3>生产计划单</h3><span>{productionPlan.planNumber}</span></div>
+              </div>
+              <ProductionPlanAttachmentPanel
+                attachment={productionPlan}
+                previewUrl={productionPlanPreviewUrl}
+                compact
+                loading={productionPlanLoading}
+                onOpen={() => setProductionPlanPreviewOpen(true)}
+              />
+            </section>
+          ) : null}
+
           {card.permissions.availableActions.length > 0 ? (
             <section className="panel print-review-panel print-review-panel--action">
               <div className="panel__header">
@@ -256,10 +362,16 @@ export function PrintPage() {
                 <div><dt>生效范围</dt><dd>{card.revisionEffectiveScope || '-'}</dd></div>
               </dl>
               <div className="revision-changes">
-                <strong>相对上一版本的变化（{revisionDiff?.changes.length ?? 0}项）</strong>
-                {revisionDiff?.changes.map((change) => (
-                  <div className="revision-change" key={change.field}><b>{change.field}</b><span className="revision-change__before">原：{change.before}</span><span className="revision-change__after">新：{change.after}</span></div>
-                ))}
+                <strong>本次变更（{revisionDiff?.changes.length ?? 0} 项）</strong>
+                {revisionDiff?.changes.length
+                  ? revisionDiff.changes.map((change) => (
+                      <div className="revision-change" key={change.field}>
+                        <b>{change.field}</b>
+                        <div className="revision-change__value revision-change__before"><em>修改前</em><span>{change.before || '-'}</span></div>
+                        <div className="revision-change__value revision-change__after"><em>修改后</em><span>{change.after || '-'}</span></div>
+                      </div>
+                    ))
+                  : <span className="revision-change-empty">未检测到字段变化</span>}
               </div>
               {card.sourceCardId ? (
                 <Link

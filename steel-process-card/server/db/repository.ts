@@ -37,6 +37,9 @@ import type {
   ProcessCardPayload,
   ProcessCardRevisionDiff,
   ProcessCardRevisionRequest,
+  ProductionPlanAttachment,
+  ProductionPlanCardRelations,
+  ProductionPlanCardSummary,
   ProductPrefillCandidate,
   UserRole,
   UserAccount,
@@ -49,6 +52,7 @@ import type {
   WorkflowStep,
 } from '../../shared/types';
 import {
+  APPROVAL_ACTION_LABELS,
   APPROVAL_ACTION_COMMENT_REQUIRED,
   DEFAULT_DEPARTMENT_OPTIONS,
   FIXED_REMARK,
@@ -324,6 +328,33 @@ type NotificationReadRow = {
   notification_id: string;
 };
 
+type ProductionPlanDocumentRow = {
+  id: string;
+  plan_number: string;
+  original_name: string;
+  stored_name: string;
+  mime_type: string;
+  file_size: number;
+  uploaded_by_user_id: string;
+  uploaded_by_name: string;
+  created_at: string;
+  updated_at: string;
+  linked_card_count?: number;
+};
+
+type LegacyProductionPlanAttachmentRow = {
+  id: string;
+  card_id: string;
+  original_name: string;
+  stored_name: string;
+  mime_type: string;
+  file_size: number;
+  uploaded_by_user_id: string;
+  uploaded_by_name: string;
+  created_at: string;
+  plan_number: string;
+};
+
 const SESSION_TTL_MS = 1000 * 60 * 60 * appConfig.sessionTtlHours;
 const WORKFLOW_ROLE_ORDER: WorkflowRole[] = ['prepare', 'confirm', 'review', 'approve'];
 
@@ -436,36 +467,118 @@ const compareAuditField = (
   }
 };
 
-const summarizeOperations = (operations: CardOperation[]) =>
+const getOperationDefinition = (operationCode: string) =>
+  PROCESS_CATALOG.find((definition) => definition.code === operationCode);
+
+const getOperationName = (operation: CardOperation) =>
+  operation.customName.trim() || getOperationDefinition(operation.operationCode)?.name || operation.operationCode;
+
+const summarizeEnabledOperationNames = (operations: CardOperation[]) =>
   operations
     .filter((operation) => operation.enabled)
     .sort((left, right) => left.sortOrder - right.sortOrder)
-    .map((operation) => {
-      const detailText = operation.details
-        .map((detail) => {
-          const params = Object.entries(detail.params)
-            .filter(([, value]) => value.trim())
-            .map(([key, value]) => `${key}:${value}`)
-            .join(' / ');
+    .map(getOperationName)
+    .join(' → ');
 
-          return [detail.detailType, params].filter(Boolean).join(' ');
-        })
-        .filter(Boolean)
-        .join(' | ');
+const describeOperationOptions = (operation: CardOperation) => {
+  const definition = getOperationDefinition(operation.operationCode);
+  const labels = operation.selectedOptionCodes.map((code) =>
+    definition?.optionCatalog.find((option) => option.optionCode === code)?.label || code,
+  );
+  return labels.join('、');
+};
 
-      return [
-        operation.customName.trim() || operation.operationCode,
-        operation.department,
-        operation.specialCharacteristic,
-        operation.deliveryTime,
-        operation.otherRequirements,
-        operation.selectedOptionCodes.join(','),
-        detailText,
-      ]
-        .filter(Boolean)
-        .join(' / ');
+const describeOperationDetails = (operation: CardOperation) => {
+  const definition = getOperationDefinition(operation.operationCode);
+  return operation.details
+    .map((detail, detailIndex) => {
+      const detailType = definition?.optionCatalog.find((option) => option.optionCode === detail.detailType)?.label
+        || detail.detailType.trim();
+      const detailTypeAlreadyShown = operation.selectedOptionCodes.includes(detail.detailType)
+        || operation.selectedOptionCodes.some((code) =>
+          definition?.optionCatalog.find((option) => option.optionCode === code)?.label === detailType,
+        );
+      const params = Object.entries(detail.params)
+        .filter(([, value]) => value.trim())
+        .map(([key, value]) => {
+          const field = definition?.fieldConfig.find((item) => item.key === key);
+          return `${field?.label || key}：${value}`;
+        });
+      const values = [detailType && !detailTypeAlreadyShown ? `类型：${detailType}` : '', ...params].filter(Boolean);
+      if (values.length === 0) {
+        return '';
+      }
+      const prefix = operation.details.length > 1 ? `明细 ${detailIndex + 1}：` : '';
+      return `${prefix}${values.join('；')}`;
     })
-    .join('; ');
+    .filter(Boolean)
+    .join('\n');
+};
+
+const describeEnabledOperation = (operation: CardOperation) => {
+  const values = [
+    operation.department && `生产部门：${operation.department}`,
+    operation.specialCharacteristic && `特殊特性：${operation.specialCharacteristic}`,
+    describeOperationOptions(operation) && `工艺/制造：${describeOperationOptions(operation)}`,
+    describeOperationDetails(operation) && `产品要求：${describeOperationDetails(operation)}`,
+    operation.deliveryTime && `交付时间：${operation.deliveryTime}`,
+    operation.otherRequirements && `其他要求：${operation.otherRequirements}`,
+  ].filter(Boolean);
+  return values.length > 0 ? `已启用\n${values.join('\n')}` : '已启用';
+};
+
+const compareOperationChanges = (
+  changes: AuditLogChange[],
+  beforeOperations: CardOperation[],
+  afterOperations: CardOperation[],
+) => {
+  const beforeMap = new Map(beforeOperations.map((operation) => [operation.operationCode, operation]));
+  const afterMap = new Map(afterOperations.map((operation) => [operation.operationCode, operation]));
+  const operationCodes = new Set([...beforeMap.keys(), ...afterMap.keys()]);
+
+  for (const operationCode of operationCodes) {
+    const before = beforeMap.get(operationCode);
+    const after = afterMap.get(operationCode);
+    const wasEnabled = Boolean(before?.enabled);
+    const isEnabled = Boolean(after?.enabled);
+    const operation = after || before;
+    if (!operation || (!wasEnabled && !isEnabled)) {
+      continue;
+    }
+
+    const name = getOperationName(operation);
+    if (wasEnabled !== isEnabled) {
+      changes.push({
+        field: `工序：${name}`,
+        before: wasEnabled && before ? describeEnabledOperation(before) : '未启用',
+        after: isEnabled && after ? describeEnabledOperation(after) : '未启用',
+      });
+      continue;
+    }
+    if (!before || !after) {
+      continue;
+    }
+
+    compareAuditField(changes, `${name} · 工序名称`, before.customName, after.customName);
+    compareAuditField(changes, `${name} · 生产部门`, before.department, after.department);
+    compareAuditField(changes, `${name} · 特殊特性`, before.specialCharacteristic, after.specialCharacteristic);
+    compareAuditField(changes, `${name} · 工艺/制造`, describeOperationOptions(before), describeOperationOptions(after));
+    compareAuditField(changes, `${name} · 产品要求`, describeOperationDetails(before), describeOperationDetails(after));
+    compareAuditField(changes, `${name} · 交付时间`, before.deliveryTime, after.deliveryTime);
+    compareAuditField(changes, `${name} · 其他要求`, before.otherRequirements, after.otherRequirements);
+  }
+
+  const beforeEnabledCodes = beforeOperations.filter((item) => item.enabled).map((item) => item.operationCode).sort();
+  const afterEnabledCodes = afterOperations.filter((item) => item.enabled).map((item) => item.operationCode).sort();
+  if (beforeEnabledCodes.join('|') === afterEnabledCodes.join('|')) {
+    compareAuditField(
+      changes,
+      '工序顺序',
+      summarizeEnabledOperationNames(beforeOperations),
+      summarizeEnabledOperationNames(afterOperations),
+    );
+  }
+};
 
 function getAvailableActions(card: CardRow, viewer: AuthUser | null): ApprovalAction[] {
   if (!viewer || card.status === 'approved' || card.status === 'superseded' || card.status === 'voided') {
@@ -705,7 +818,7 @@ function buildProcessCardChanges(before: ProcessCardPayload | null, after: Proce
       { field: '材质', before: '-', after: after.material || '-' },
       { field: '规格及公差（mm）', before: '-', after: after.specification || '-' },
       { field: '长度及公差（mm）', before: '-', after: after.lengthTolerance || '-' },
-      { field: '启用工序', before: '-', after: summarizeOperations(after.operations) || '-' },
+      { field: '启用工序', before: '-', after: summarizeEnabledOperationNames(after.operations) || '-' },
     ];
   }
 
@@ -725,12 +838,7 @@ function buildProcessCardChanges(before: ProcessCardPayload | null, after: Proce
   compareAuditField(changes, '确认人', before.confirmedUserId, after.confirmedUserId);
   compareAuditField(changes, '审核人', before.reviewedUserId, after.reviewedUserId);
   compareAuditField(changes, '批准人', before.approvedUserId, after.approvedUserId);
-  compareAuditField(
-    changes,
-    '启用工序',
-    summarizeOperations(before.operations),
-    summarizeOperations(after.operations),
-  );
+  compareOperationChanges(changes, before.operations, after.operations);
   return changes;
 }
 
@@ -744,6 +852,7 @@ export class ProcessCardRepository {
     this.sqlite.exec(schema);
     this.ensureWorkflowSchema();
     this.ensureSystemSchema();
+    this.migrateLegacyProductionPlanAttachments();
     this.seedDefinitions(false);
     this.migrateLegacyFormingOperations();
     this.migrateLegacyCustomOperations();
@@ -1326,6 +1435,46 @@ export class ProcessCardRepository {
     return new Set(rows.map((row) => row.notification_id));
   }
 
+  private migrateLegacyProductionPlanAttachments() {
+    if (this.sqlite.listColumns('process_card_attachments').length === 0) {
+      return;
+    }
+
+    const rows = this.sqlite.query<LegacyProductionPlanAttachmentRow>(
+      `
+        SELECT a.*, c.plan_number
+        FROM process_card_attachments a
+        JOIN process_cards c ON c.id = a.card_id
+      `,
+    );
+
+    for (const row of rows) {
+      const [existing] = this.sqlite.query<ProductionPlanDocumentRow>(
+        'SELECT * FROM production_plan_documents WHERE plan_number = ?',
+        [row.plan_number],
+      );
+      const documentId = existing?.id ?? row.id;
+      if (!existing) {
+        this.sqlite.run(
+          `
+            INSERT INTO production_plan_documents
+            (id, plan_number, original_name, stored_name, mime_type, file_size, uploaded_by_user_id, uploaded_by_name, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `,
+          [row.id, row.plan_number, row.original_name, row.stored_name, row.mime_type, row.file_size, row.uploaded_by_user_id, row.uploaded_by_name, row.created_at, row.created_at],
+        );
+      }
+      this.sqlite.run(
+        `
+          INSERT INTO process_card_plan_links (card_id, production_plan_id, created_at)
+          VALUES (?, ?, ?)
+          ON CONFLICT (card_id) DO NOTHING
+        `,
+        [row.card_id, documentId, row.created_at],
+      );
+    }
+  }
+
   private collectRelatedCardIds(cardRows: CardRow[], viewer: AuthUser) {
     const relatedCardIds = new Set<string>();
 
@@ -1382,29 +1531,6 @@ export class ProcessCardRepository {
       });
     };
 
-    if (isAdmin(viewer)) {
-      const pendingTotal = cardRows.filter(
-        (card) =>
-          card.status !== 'approved' &&
-          card.status !== 'voided',
-      ).length;
-
-      if (pendingTotal > 0) {
-        const id = `admin-global-pending-${pendingTotal}`;
-        items.push({
-          id,
-          type: 'todo',
-          title: `当前共有 ${pendingTotal} 张流程中工艺卡`,
-          description: '可进入工作台或工艺卡列表统筹查看待确认、待审核和待批准单据。',
-          createdAt: new Date().toISOString(),
-          level: 'todo',
-          isRead: readMap.has(id),
-          actionLabel: '查看列表',
-          to: '/cards',
-        });
-      }
-    }
-
     for (const card of cardRows) {
       const cardTitle = this.getCardDisplayTitle(card);
 
@@ -1428,7 +1554,8 @@ export class ProcessCardRepository {
           'rejected-to-prepare',
           `${cardTitle} 已退回编制`,
           card.last_return_comment.trim() || '请根据退回意见修改后重新提交。',
-          '立即修改',
+          '查看退回内容',
+          `/cards/${card.id}/print`,
         );
       }
 
@@ -1447,6 +1574,7 @@ export class ProcessCardRepository {
             ? card.last_return_comment.trim() || '该工艺卡已回到确认环节，请重新处理。'
             : '请核对内容后提交审核或退回编制。',
           '进入确认',
+          card.status === 'rejected_to_confirm' ? `/cards/${card.id}/print` : undefined,
         );
       }
 
@@ -1487,50 +1615,39 @@ export class ProcessCardRepository {
       }
     }
 
-    const relatedCardIds = this.collectRelatedCardIds(cardRows, viewer);
-    if (relatedCardIds.size > 0) {
-      const placeholders = Array.from({ length: relatedCardIds.size }, () => '?').join(', ');
-      const recentLogs = isAdmin(viewer)
-        ? this.sqlite.query<AuditLogRow>(
-            `
-              SELECT *
-              FROM audit_logs
-              WHERE category IN ('process_card', 'approval')
-                AND entity_type = 'process_card'
-                AND entity_id IN (${placeholders})
-              ORDER BY created_at DESC
-              LIMIT 10
-            `,
-            [...relatedCardIds],
-          )
-        : this.sqlite.query<AuditLogRow>(
-            `
-              SELECT *
-              FROM audit_logs
-              WHERE category IN ('process_card', 'approval')
-                AND entity_type = 'process_card'
-                AND entity_id IN (${placeholders})
-                AND (target_user_id = ? OR actor_user_id = ?)
-              ORDER BY created_at DESC
-              LIMIT 10
-            `,
-            [...relatedCardIds, viewer.id, viewer.id],
-          );
+    const recentLogs = this.sqlite.query<AuditLogRow>(
+      `
+        SELECT *
+        FROM audit_logs
+        WHERE category = 'approval'
+          AND entity_type = 'process_card'
+          AND target_user_id = ?
+          AND actor_user_id <> ?
+        ORDER BY created_at DESC
+        LIMIT 10
+      `,
+      [viewer.id, viewer.id],
+    );
+    const cardMap = new Map(cardRows.map((card) => [card.id, card]));
 
-      for (const row of recentLogs) {
-        const id = `log-${row.id}`;
-        items.push({
-          id,
-          type: 'notice',
-          title: row.summary,
-          description: row.detail_text || `${row.actor_display_name || '系统'} 发起了流程变更。`,
-          createdAt: row.created_at,
-          level: row.category === 'approval' ? 'info' : 'success',
-          isRead: readMap.has(id),
-          actionLabel: '查看单据',
-          to: row.entity_id ? `/cards/${row.entity_id}/print` : '/cards',
-        });
-      }
+    for (const row of recentLogs) {
+      const id = `log-${row.id}`;
+      const relatedCard = cardMap.get(row.entity_id);
+      items.push({
+        id,
+        type: 'notice',
+        title: row.summary,
+        description: row.detail_text || `${row.actor_display_name || '系统'} 已将工艺卡提交给你处理。`,
+        createdAt: row.created_at,
+        level: row.action.startsWith('reject_') || row.action === 'return_prepare' ? 'warning' : 'info',
+        isRead: readMap.has(id),
+        actionLabel: '查看单据',
+        to: relatedCard
+          ? (row.action.startsWith('reject_') || row.action === 'return_prepare'
+              ? `/cards/${relatedCard.id}/print`
+              : this.getCardTargetPath(relatedCard, viewer))
+          : '/cards',
+      });
     }
 
     return items
@@ -1597,6 +1714,301 @@ export class ProcessCardRepository {
     }
 
     return this.getNotificationOverview(viewer);
+  }
+
+  async getNextPendingWorkflowTask(viewer: AuthUser, step: 'review' | 'approve', excludeId = '') {
+    if (!isAdmin(viewer) && !hasWorkflowRole(viewer, step)) {
+      throw new Error(step === 'review' ? '当前账号没有审核权限。' : '当前账号没有批准权限。');
+    }
+
+    const status = step === 'review' ? 'pending_review' : 'pending_approve';
+    const whereClauses = ['status = ?', 'id <> ?'];
+    const params = [status, excludeId];
+
+    if (!isAdmin(viewer)) {
+      whereClauses.push('current_handler_user_id = ?');
+      params.push(viewer.id);
+    }
+
+    const [row] = this.sqlite.query<{ id: string }>(
+      `
+        SELECT id
+        FROM process_cards
+        WHERE ${whereClauses.join(' AND ')}
+        ORDER BY updated_at ASC, created_at ASC
+        LIMIT 1
+      `,
+      params,
+    );
+
+    return { id: row?.id ?? null };
+  }
+
+  private toProductionPlanAttachment(row: ProductionPlanDocumentRow): ProductionPlanAttachment {
+    return {
+      id: row.id,
+      planNumber: row.plan_number,
+      fileName: row.original_name,
+      mimeType: row.mime_type,
+      size: Number(row.file_size),
+      uploadedByName: row.uploaded_by_name,
+      createdAt: row.created_at,
+      linkedCardCount: this.countLinkedBusinessCards(row.id),
+    };
+  }
+
+  private getBusinessCardRootId(cardId: string, cardMap: Map<string, CardRow>) {
+    let currentId = cardId;
+    const visited = new Set<string>();
+    while (currentId && !visited.has(currentId)) {
+      visited.add(currentId);
+      const sourceId = cardMap.get(currentId)?.source_card_id;
+      if (!sourceId || !cardMap.has(sourceId)) {
+        return currentId;
+      }
+      currentId = sourceId;
+    }
+    return cardId;
+  }
+
+  private getProductionPlanCardGroups(productionPlanId: string) {
+    const cards = this.sqlite.query<CardRow>('SELECT * FROM process_cards');
+    const cardMap = new Map(cards.map((card) => [card.id, card]));
+    const links = this.sqlite.query<{ card_id: string; production_plan_id: string }>(
+      'SELECT card_id, production_plan_id FROM process_card_plan_links',
+    );
+    const linkedToPlan = new Set(
+      links.filter((link) => link.production_plan_id === productionPlanId).map((link) => link.card_id),
+    );
+    const groups = new Map<string, CardRow[]>();
+    for (const card of cards) {
+      const rootId = this.getBusinessCardRootId(card.id, cardMap);
+      groups.set(rootId, [...(groups.get(rootId) || []), card]);
+    }
+    return { cardMap, groups, linkedToPlan };
+  }
+
+  private getLatestCardInGroup(cards: CardRow[]) {
+    return [...cards].sort((left, right) =>
+      Number(right.version_no) - Number(left.version_no)
+      || right.updated_at.localeCompare(left.updated_at),
+    )[0];
+  }
+
+  private toProductionPlanCardSummary(card: CardRow, businessCardId: string): ProductionPlanCardSummary {
+    return {
+      id: card.id,
+      businessCardId,
+      productName: card.product_name,
+      material: card.material,
+      specification: card.specification,
+      versionNo: Number(card.version_no),
+      status: card.status,
+    };
+  }
+
+  private countLinkedBusinessCards(productionPlanId: string) {
+    const { cardMap, linkedToPlan } = this.getProductionPlanCardGroups(productionPlanId);
+    return new Set([...linkedToPlan].map((cardId) => this.getBusinessCardRootId(cardId, cardMap))).size;
+  }
+
+  getProductionPlanCardRelations(productionPlanId: string): ProductionPlanCardRelations {
+    const plan = this.getProductionPlanRecord(productionPlanId);
+    if (!plan) {
+      throw new Error('生产计划单不存在。');
+    }
+    const { groups, linkedToPlan } = this.getProductionPlanCardGroups(productionPlanId);
+    const linked: ProductionPlanCardSummary[] = [];
+
+    for (const [businessCardId, cards] of groups) {
+      const latest = this.getLatestCardInGroup(cards);
+      const hasCurrentLink = cards.some((card) => linkedToPlan.has(card.id));
+      if (hasCurrentLink) {
+        linked.push(this.toProductionPlanCardSummary(latest, businessCardId));
+      }
+    }
+
+    const sortCards = (left: ProductionPlanCardSummary, right: ProductionPlanCardSummary) =>
+      left.productName.localeCompare(right.productName, 'zh-CN') || left.material.localeCompare(right.material, 'zh-CN');
+    return { linked: linked.sort(sortCards) };
+  }
+
+  getProductionPlanRecord(id: string) {
+    const [row] = this.sqlite.query<ProductionPlanDocumentRow>(
+      `
+        SELECT d.*, COUNT(l.card_id) AS linked_card_count
+        FROM production_plan_documents d
+        LEFT JOIN process_card_plan_links l ON l.production_plan_id = d.id
+        WHERE d.id = ?
+        GROUP BY d.id
+      `,
+      [id],
+    );
+    return row ?? null;
+  }
+
+  getProductionPlanAttachment(id: string) {
+    const row = this.getProductionPlanRecord(id);
+    return row ? this.toProductionPlanAttachment(row) : null;
+  }
+
+  getProductionPlanForCard(cardId: string) {
+    const [row] = this.sqlite.query<ProductionPlanDocumentRow>(
+      `
+        SELECT d.*, COUNT(all_links.card_id) AS linked_card_count
+        FROM process_card_plan_links card_link
+        JOIN production_plan_documents d ON d.id = card_link.production_plan_id
+        LEFT JOIN process_card_plan_links all_links ON all_links.production_plan_id = d.id
+        WHERE card_link.card_id = ?
+        GROUP BY d.id
+      `,
+      [cardId],
+    );
+    return row ? this.toProductionPlanAttachment(row) : null;
+  }
+
+  listProductionPlans(keyword = '') {
+    const normalizedKeyword = keyword.trim();
+    const rows = this.sqlite.query<ProductionPlanDocumentRow>(
+      `
+        SELECT d.*, COUNT(l.card_id) AS linked_card_count
+        FROM production_plan_documents d
+        LEFT JOIN process_card_plan_links l ON l.production_plan_id = d.id
+        ${normalizedKeyword ? 'WHERE d.plan_number LIKE ? OR d.original_name LIKE ?' : ''}
+        GROUP BY d.id
+        ORDER BY d.updated_at DESC
+      `,
+      normalizedKeyword ? [`%${normalizedKeyword}%`, `%${normalizedKeyword}%`] : [],
+    );
+    return rows.map((row) => this.toProductionPlanAttachment(row));
+  }
+
+  matchProductionPlan(planNumber: string) {
+    const [row] = this.sqlite.query<ProductionPlanDocumentRow>(
+      `
+        SELECT d.*, COUNT(l.card_id) AS linked_card_count
+        FROM production_plan_documents d
+        LEFT JOIN process_card_plan_links l ON l.production_plan_id = d.id
+        WHERE d.plan_number = ?
+        GROUP BY d.id
+      `,
+      [planNumber.trim()],
+    );
+    return row ? this.toProductionPlanAttachment(row) : null;
+  }
+
+  async saveProductionPlanAttachment(
+    input: { id: string; planNumber: string; originalName: string; storedName: string; mimeType: string; size: number },
+    actor: AuthUser,
+    ipAddress = '',
+  ) {
+    if (!isAdmin(actor) && !hasWorkflowRole(actor, 'prepare')) {
+      throw new Error('当前账号没有维护生产计划单附件的权限。');
+    }
+    const planNumber = input.planNumber.trim();
+    if (!planNumber) {
+      throw new Error('计划单号不能为空。');
+    }
+    const [sameNumber] = this.sqlite.query<ProductionPlanDocumentRow>(
+      'SELECT * FROM production_plan_documents WHERE plan_number = ?',
+      [planNumber],
+    );
+    if (sameNumber && sameNumber.id !== input.id) {
+      throw new Error('该计划单号已经上传，请在原记录中替换附件。');
+    }
+    const previous = this.getProductionPlanRecord(input.id);
+    const now = new Date().toISOString();
+    this.sqlite.transaction(() => {
+      this.sqlite.run(
+        `
+          INSERT INTO production_plan_documents
+          (id, plan_number, original_name, stored_name, mime_type, file_size, uploaded_by_user_id, uploaded_by_name, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT (id) DO UPDATE SET
+            plan_number = excluded.plan_number,
+            original_name = excluded.original_name,
+            stored_name = excluded.stored_name,
+            mime_type = excluded.mime_type,
+            file_size = excluded.file_size,
+            uploaded_by_user_id = excluded.uploaded_by_user_id,
+            uploaded_by_name = excluded.uploaded_by_name,
+            updated_at = excluded.updated_at
+        `,
+        [input.id, planNumber, input.originalName, input.storedName, input.mimeType, input.size, actor.id, actor.displayName, now, now],
+      );
+      this.writeAuditLog({
+        category: 'process_card',
+        entityType: 'production_plan',
+        entityId: input.id,
+        action: previous ? 'replace_production_plan' : 'upload_production_plan',
+        actor,
+        summary: `${previous ? '替换' : '上传'}生产计划单：${planNumber}`,
+        detailText: input.originalName,
+        changes: [{ field: '生产计划单', before: previous?.original_name ?? '-', after: input.originalName }],
+        ipAddress,
+      });
+    });
+    await this.sqlite.persist();
+    return {
+      item: this.getProductionPlanAttachment(input.id),
+      previousStoredName: previous?.stored_name ?? '',
+    };
+  }
+
+  async linkProductionPlanToCard(cardId: string, productionPlanId: string, actor: AuthUser) {
+    const [card] = this.sqlite.query<CardRow>('SELECT * FROM process_cards WHERE id = ?', [cardId]);
+    if (!card || !getPermissions(card, actor).canEdit) {
+      throw new Error('当前状态下不能修改生产计划单关联。');
+    }
+    if (!productionPlanId) {
+      this.sqlite.run('DELETE FROM process_card_plan_links WHERE card_id = ?', [cardId]);
+      await this.sqlite.persist();
+      return { item: null };
+    }
+    const plan = this.getProductionPlanRecord(productionPlanId);
+    if (!plan) {
+      throw new Error('生产计划单附件不存在。');
+    }
+    this.sqlite.run(
+      `
+        INSERT INTO process_card_plan_links (card_id, production_plan_id, created_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT (card_id) DO UPDATE SET production_plan_id = excluded.production_plan_id
+      `,
+      [cardId, productionPlanId, new Date().toISOString()],
+    );
+    await this.sqlite.persist();
+    return { item: this.getProductionPlanForCard(cardId) };
+  }
+
+  async deleteProductionPlanAttachment(id: string, actor: AuthUser, ipAddress = '') {
+    if (!isAdmin(actor) && !hasWorkflowRole(actor, 'prepare')) {
+      throw new Error('当前账号没有维护生产计划单附件的权限。');
+    }
+    const previous = this.getProductionPlanRecord(id);
+    if (!previous) {
+      return { success: true, storedName: '' };
+    }
+    if (Number(previous.linked_card_count ?? 0) > 0) {
+      throw new Error('该计划单已经关联工艺卡，请先取消关联后再删除。');
+    }
+
+    this.sqlite.transaction(() => {
+      this.sqlite.run('DELETE FROM production_plan_documents WHERE id = ?', [id]);
+      this.writeAuditLog({
+        category: 'process_card',
+        entityType: 'production_plan',
+        entityId: id,
+        action: 'delete_production_plan',
+        actor,
+        summary: `删除生产计划单：${previous.plan_number}`,
+        detailText: previous.original_name,
+        changes: [{ field: '生产计划单', before: previous.original_name, after: '-' }],
+        ipAddress,
+      });
+    });
+    await this.sqlite.persist();
+    return { success: true, storedName: previous.stored_name };
   }
 
   async listAuditLogs(filters: AuditLogFilters): Promise<AuditLogEntry[]> {
@@ -2880,6 +3292,15 @@ export class ProcessCardRepository {
         ],
       );
       this.writeOperations(revisionId, source.operations);
+      this.sqlite.run(
+        `
+          INSERT INTO process_card_plan_links (card_id, production_plan_id, created_at)
+          SELECT ?, production_plan_id, ?
+          FROM process_card_plan_links
+          WHERE card_id = ?
+        `,
+        [revisionId, now, sourceCardId],
+      );
       this.writeAuditLog({
         category: 'process_card',
         entityType: 'process_card',
@@ -3150,7 +3571,7 @@ export class ProcessCardRepository {
         actor,
         targetUserId: getTargetUserIdForAction(card, payload.action),
         targetDisplayName: this.getUserDisplayName(getTargetUserIdForAction(card, payload.action)),
-        summary: `审批动作：${payload.action} -> ${card.plan_number || card.product_name || cardId}`,
+        summary: `${APPROVAL_ACTION_LABELS[payload.action]}：${card.plan_number || card.product_name || cardId}`,
         detailText: comment,
         changes: [
           {
@@ -3219,7 +3640,6 @@ export class ProcessCardRepository {
     if (!card) {
       return { success: true };
     }
-
     this.sqlite.transaction(() => {
       this.sqlite.run('DELETE FROM process_cards WHERE id = ?', [id]);
       this.writeAuditLog({
@@ -3252,7 +3672,6 @@ export class ProcessCardRepository {
     if (!getPermissions(card, actor).canDelete) {
       throw new Error('当前状态下你没有删除这张工艺卡的权限。');
     }
-
     this.sqlite.transaction(() => {
       this.sqlite.run('DELETE FROM process_cards WHERE id = ?', [id]);
       this.writeAuditLog({

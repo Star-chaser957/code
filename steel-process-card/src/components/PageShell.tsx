@@ -92,6 +92,9 @@ export function PageShell() {
               <NavLink to="/cards" end className="nav-link" onClick={closeMobileMenu} title="工艺卡列表">
                 <NavIcon>▤</NavIcon><span className="nav-link__label">工艺卡列表</span>
               </NavLink>
+              <NavLink to="/production-plans" className="nav-link" onClick={closeMobileMenu} title="计划单列表">
+                <NavIcon>▧</NavIcon><span className="nav-link__label">计划单列表</span>
+              </NavLink>
               {canCreateCards ? (
                 <NavLink to="/cards/new" className="nav-link" onClick={closeMobileMenu} title="新建工艺卡">
                   <NavIcon>＋</NavIcon><span className="nav-link__label">新建工艺卡</span>

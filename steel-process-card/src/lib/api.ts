@@ -7,12 +7,15 @@ import type {
   DepartmentOption,
   LoginRequest,
   LoginResponse,
+  NextPendingApprovalResponse,
   OperationDefinition,
   ProcessCardListFilters,
   ProcessCardListResponse,
   ProcessCardRevisionDiff,
   ProcessCardRevisionRequest,
   ProcessCardPayload,
+  ProductionPlanAttachment,
+  ProductionPlanCardRelations,
   ProductPrefillCandidate,
   NotificationOverview,
   UserAccount,
@@ -68,6 +71,25 @@ async function request<T>(input: string, init?: RequestInit): Promise<T> {
   }
 
   return response.json() as Promise<T>;
+}
+
+async function requestBlob(input: string): Promise<Blob> {
+  const headers = new Headers();
+  const token = getAuthToken();
+  if (token) {
+    headers.set('Authorization', `Bearer ${token}`);
+  }
+
+  const response = await fetch(`${API_BASE}${input}`, { headers });
+  if (!response.ok) {
+    if (response.status === 401 && typeof window !== 'undefined') {
+      clearAuthToken();
+      window.dispatchEvent(new Event('auth:unauthorized'));
+    }
+    const payload = await response.text();
+    throw new Error(payload || '文件读取失败');
+  }
+  return response.blob();
 }
 
 export const api = {
@@ -182,6 +204,48 @@ export const api = {
 
   getProcessCard: async (id: string) => request<ProcessCardPayload>(`/api/process-cards/${id}`),
 
+  getCardProductionPlan: async (id: string) =>
+    request<{ item: ProductionPlanAttachment | null }>(`/api/process-cards/${id}/production-plan`),
+
+  linkProductionPlanToCard: async (cardId: string, productionPlanId: string) =>
+    request<{ item: ProductionPlanAttachment | null }>(`/api/process-cards/${cardId}/production-plan`, {
+      method: 'PUT',
+      body: JSON.stringify({ productionPlanId }),
+    }),
+
+  listProductionPlans: async (keyword = '') =>
+    request<{ items: ProductionPlanAttachment[] }>(
+      `/api/production-plans${keyword.trim() ? `?keyword=${encodeURIComponent(keyword.trim())}` : ''}`,
+    ),
+
+  matchProductionPlan: async (planNumber: string) =>
+    request<{ item: ProductionPlanAttachment | null }>(
+      `/api/production-plans/match?planNumber=${encodeURIComponent(planNumber.trim())}`,
+    ),
+
+  getProductionPlanContent: async (id: string) =>
+    requestBlob(`/api/production-plans/${id}/content`),
+
+  uploadProductionPlan: async (planNumber: string, file: File, id?: string) =>
+    request<{ item: ProductionPlanAttachment }>(
+      id ? `/api/production-plans/${id}/file` : '/api/production-plans',
+      {
+      method: id ? 'PUT' : 'POST',
+      headers: {
+        'Content-Type': 'application/octet-stream',
+        'X-File-Name': encodeURIComponent(file.name),
+        'X-File-Type': file.type,
+        'X-Plan-Number': encodeURIComponent(planNumber),
+      },
+      body: file,
+    }),
+
+  getProductionPlanCards: async (id: string) =>
+    request<ProductionPlanCardRelations>(`/api/production-plans/${id}/cards`),
+
+  deleteProductionPlan: async (id: string) =>
+    request<{ success: boolean }>(`/api/production-plans/${id}`, { method: 'DELETE' }),
+
   getProductPrefill: async (productName: string) =>
     request<{ items: ProductPrefillCandidate[] }>(
       `/api/process-cards/prefill/by-product-name?productName=${encodeURIComponent(productName)}`,
@@ -204,6 +268,11 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
+
+  getNextPendingWorkflowTask: async (step: 'review' | 'approve', excludeId: string) =>
+    request<NextPendingApprovalResponse>(
+      `/api/process-cards/workflow/next-task?step=${step}&excludeId=${encodeURIComponent(excludeId)}`,
+    ),
 
   createProcessCardRevision: async (id: string, payload: ProcessCardRevisionRequest) =>
     request<ProcessCardPayload>(`/api/process-cards/${id}/revisions`, {

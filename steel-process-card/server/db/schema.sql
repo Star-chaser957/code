@@ -183,3 +183,28 @@ CREATE INDEX IF NOT EXISTS idx_audit_logs_category ON audit_logs (category);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_actor_user_id ON audit_logs (actor_user_id);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_entity ON audit_logs (entity_type, entity_id);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs (created_at);
+
+CREATE TABLE IF NOT EXISTS production_plan_documents (
+  id TEXT PRIMARY KEY,
+  plan_number TEXT NOT NULL UNIQUE,
+  original_name TEXT NOT NULL,
+  stored_name TEXT NOT NULL,
+    mime_type TEXT NOT NULL,
+    file_size INTEGER NOT NULL,
+    uploaded_by_user_id TEXT NOT NULL DEFAULT '',
+  uploaded_by_name TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_production_plan_documents_plan_number ON production_plan_documents (plan_number);
+
+CREATE TABLE IF NOT EXISTS process_card_plan_links (
+  card_id TEXT PRIMARY KEY,
+  production_plan_id TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  FOREIGN KEY (card_id) REFERENCES process_cards (id) ON DELETE CASCADE,
+  FOREIGN KEY (production_plan_id) REFERENCES production_plan_documents (id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_process_card_plan_links_plan_id ON process_card_plan_links (production_plan_id);

@@ -10,10 +10,17 @@ import { adminRoutes } from './routes/admin';
 import { dashboardRoutes } from './routes/dashboard';
 import { metaRoutes } from './routes/meta';
 import { processCardRoutes } from './routes/process-cards';
+import { productionPlanRoutes } from './routes/production-plans';
 
 const server = Fastify({
   logger: appConfig.serverLogEnabled,
 });
+
+server.addContentTypeParser(
+  'application/octet-stream',
+  { parseAs: 'buffer', bodyLimit: appConfig.maxUploadBytes },
+  (_request, body, done) => done(null, body),
+);
 
 await repository.init();
 
@@ -28,6 +35,7 @@ await server.register(dashboardRoutes, { prefix: '/api/dashboard' });
 await server.register(metaRoutes, { prefix: '/api/meta' });
 await server.register(adminRoutes, { prefix: '/api/admin' });
 await server.register(processCardRoutes, { prefix: '/api/process-cards' });
+await server.register(productionPlanRoutes, { prefix: '/api/production-plans' });
 
 const distPath = path.join(projectRoot, 'dist');
 const indexFile = path.join(distPath, 'index.html');

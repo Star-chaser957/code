@@ -30,6 +30,8 @@ const envSchema = z.object({
     .trim()
     .default('false')
     .transform((value) => value.toLowerCase() === 'true'),
+  UPLOAD_DIR: z.string().trim().default(path.join(projectRoot, 'server', 'uploads')),
+  MAX_UPLOAD_MB: z.coerce.number().int().positive().max(50).default(15),
 });
 
 const env = envSchema.parse(process.env);
@@ -56,6 +58,8 @@ export const appConfig = {
   seedDefaultUsers: env.SEED_DEFAULT_USERS,
   seedDemoCard: env.SEED_DEMO_CARD,
   serverLogEnabled: env.SERVER_LOG_ENABLED,
+  uploadDir: path.isAbsolute(env.UPLOAD_DIR) ? env.UPLOAD_DIR : path.resolve(projectRoot, env.UPLOAD_DIR),
+  maxUploadBytes: env.MAX_UPLOAD_MB * 1024 * 1024,
 } as const;
 
 export { projectRoot, configRoot };

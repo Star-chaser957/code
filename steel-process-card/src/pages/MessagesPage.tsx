@@ -232,7 +232,15 @@ export function MessagesPage() {
                       标记已读
                     </button>
                   ) : null}
-                  <Link to={item.to} className="button button--ghost button--small">
+                  <Link
+                    to={item.to}
+                    className="button button--ghost button--small"
+                    onClick={() => {
+                      if (!item.isRead) {
+                        void handleMarkRead(item.id);
+                      }
+                    }}
+                  >
                     {item.actionLabel}
                   </Link>
                 </div>

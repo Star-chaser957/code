@@ -15,9 +15,10 @@ def load_config(config_path: Path):
 
 def cleanup_old_backups(local_dir: Path, retention_days: int):
   cutoff = time.time() - retention_days * 24 * 60 * 60
-  for file_path in local_dir.glob('process_card_*.dump'):
-    if file_path.stat().st_mtime < cutoff:
-      file_path.unlink(missing_ok=True)
+  for pattern in ('process_card_*.dump', 'production_plan_uploads_*.tar.gz'):
+    for file_path in local_dir.glob(pattern):
+      if file_path.stat().st_mtime < cutoff:
+        file_path.unlink(missing_ok=True)
 
 
 def main():
@@ -65,6 +66,21 @@ def main():
       sftp.get(remote_path, str(local_path))
       os.utime(local_path, (latest.st_atime, latest.st_mtime))
       print(f'Downloaded backup: {local_path}')
+
+    timestamp = latest.filename.removeprefix('process_card_').removesuffix('.dump')
+    attachment_name = f'production_plan_uploads_{timestamp}.tar.gz'
+    attachment_remote_path = f'{remote_dir}/{attachment_name}'
+    attachment_local_path = local_dir / attachment_name
+    try:
+      attachment_stat = sftp.stat(attachment_remote_path)
+      if attachment_local_path.exists() and int(attachment_local_path.stat().st_size) == int(attachment_stat.st_size):
+        print(f'Latest attachment backup already exists locally: {attachment_local_path}')
+      else:
+        sftp.get(attachment_remote_path, str(attachment_local_path))
+        os.utime(attachment_local_path, (attachment_stat.st_atime, attachment_stat.st_mtime))
+        print(f'Downloaded attachment backup: {attachment_local_path}')
+    except FileNotFoundError:
+      print('No matching attachment backup found for the latest database backup.')
 
     cleanup_old_backups(local_dir, retention_days)
     print(f'Local backups older than {retention_days} days have been cleaned.')

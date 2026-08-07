@@ -13,6 +13,8 @@ services:
         condition: service_healthy
     ports:
       - "80:3001"
+    volumes:
+      - ./docker-data/uploads:/app/server/uploads
 
   postgres:
     image: postgres:16

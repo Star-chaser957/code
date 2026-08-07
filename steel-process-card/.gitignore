@@ -33,4 +33,7 @@ _backend_err.txt
 .env.production.local
 backups/
 server/data/*.sqlite
+server/uploads/
+deploy/docker-data/
+deploy/docker-backups/
 *.local.json

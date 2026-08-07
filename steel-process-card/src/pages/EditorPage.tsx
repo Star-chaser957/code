@@ -7,6 +7,7 @@ import type {
   DepartmentOption,
   OperationDefinition,
   ProcessCardPayload,
+  ProductionPlanAttachment,
   ProductPrefillCandidate,
   UserSummary,
 } from '../../shared/types';
@@ -19,6 +20,7 @@ import {
 } from '../../shared/types';
 import { useAuth } from '../auth/AuthProvider';
 import { OperationEditor } from '../components/OperationEditor';
+import { ProductionPlanAttachmentPanel, ProductionPlanPreviewDialog } from '../components/ProductionPlanAttachmentPanel';
 import { PrintTemplate } from '../components/PrintTemplate';
 import { useToast } from '../components/ToastProvider';
 import { api } from '../lib/api';
@@ -166,6 +168,10 @@ export function EditorPage() {
   const [prefillCandidates, setPrefillCandidates] = useState<ProductPrefillCandidate[]>([]);
   const [selectedPrefillId, setSelectedPrefillId] = useState('');
   const [operationPickerExpanded, setOperationPickerExpanded] = useState(!isEditMode);
+  const [productionPlans, setProductionPlans] = useState<ProductionPlanAttachment[]>([]);
+  const [productionPlan, setProductionPlan] = useState<ProductionPlanAttachment | null>(null);
+  const [productionPlanPreviewUrl, setProductionPlanPreviewUrl] = useState('');
+  const [productionPlanPreviewOpen, setProductionPlanPreviewOpen] = useState(false);
 
   const showErrorDialog = (messageText: string) => {
     setError(messageText);
@@ -176,19 +182,25 @@ export function EditorPage() {
   useEffect(() => {
     const load = async () => {
       try {
-        const [definitionResponse, departmentResponse, userResponse] = await Promise.all([
+        const [definitionResponse, departmentResponse, userResponse, productionPlanResponse] = await Promise.all([
           api.getOperationDefinitions(),
           api.getDepartmentOptions(),
           api.getUsers(),
+          api.listProductionPlans(),
         ]);
 
         setDefinitions(definitionResponse.items);
         setDepartmentOptions(departmentResponse.items);
         setUsers(userResponse.items);
+        setProductionPlans(productionPlanResponse.items);
 
         if (id) {
-          const detail = await api.getProcessCard(id);
+          const [detail, attachmentResponse] = await Promise.all([
+            api.getProcessCard(id),
+            api.getCardProductionPlan(id),
+          ]);
           setCard({ ...detail, remark: FIXED_REMARK });
+          setProductionPlan(attachmentResponse.item);
         } else {
           const emptyCard = createEmptyProcessCard(definitionResponse.items);
           emptyCard.createdByUserId = user?.id ?? '';
@@ -209,6 +221,44 @@ export function EditorPage() {
 
     void load();
   }, [id, user?.displayName, user?.id, user?.username]);
+
+  useEffect(() => {
+    let active = true;
+    let objectUrl = '';
+
+    const loadPreview = async () => {
+      try {
+        if (productionPlan) {
+          objectUrl = URL.createObjectURL(await api.getProductionPlanContent(productionPlan.id));
+        }
+        if (active) {
+          setProductionPlanPreviewUrl(objectUrl);
+        }
+      } catch {
+        if (active) {
+          setProductionPlanPreviewUrl('');
+        }
+      }
+    };
+
+    void loadPreview();
+    return () => {
+      active = false;
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl);
+      }
+    };
+  }, [productionPlan]);
+
+  useEffect(() => {
+    if (!card) {
+      return;
+    }
+    const matched = productionPlans.find((item) => item.planNumber === card.planNumber.trim()) ?? null;
+    if (matched?.id !== productionPlan?.id) {
+      setProductionPlan(matched);
+    }
+  }, [card, productionPlan?.id, productionPlans]);
 
   useEffect(() => {
     if (isEditMode || !card?.productName.trim()) {
@@ -368,6 +418,9 @@ export function EditorPage() {
     const payload = { ...currentCard, remark: FIXED_REMARK };
     const saved =
       isEditMode && id ? await api.updateProcessCard(id, payload) : await api.createProcessCard(payload);
+    if (saved.id) {
+      await api.linkProductionPlanToCard(saved.id, productionPlan?.id ?? '');
+    }
     setCard({ ...saved, remark: FIXED_REMARK });
 
     if (!isEditMode) {
@@ -532,6 +585,13 @@ export function EditorPage() {
 
   return (
     <div className="page page--editor">
+      <ProductionPlanPreviewDialog
+        open={productionPlanPreviewOpen}
+        previewUrl={productionPlanPreviewUrl}
+        mimeType={productionPlan?.mimeType || ''}
+        fileName={productionPlan?.planNumber || '生产计划单'}
+        onClose={() => setProductionPlanPreviewOpen(false)}
+      />
       <header className="page__header">
         <div>
           <p className="page__eyebrow">Card Workflow</p>
@@ -692,6 +752,48 @@ export function EditorPage() {
                 ) : null}
               </div>
             ) : null}
+          </section>
+
+          <section className="panel panel--compact operation-panel" id="production-plan">
+            <div className="panel__header">
+              <div>
+                <h3>生产计划单附件</h3>
+                <span>输入计划单号后自动匹配，也可以从附件库中手动选择。</span>
+              </div>
+            </div>
+            <div className="production-plan-match">
+              <label className="field">
+                <span>关联生产计划单</span>
+                <select
+                  value={productionPlan?.id ?? ''}
+                  disabled={!canEdit}
+                  onChange={(event) => {
+                    const selected = productionPlans.find((item) => item.id === event.target.value) ?? null;
+                    setProductionPlan(selected);
+                    if (selected) {
+                      setCard((current) => current && { ...current, planNumber: selected.planNumber });
+                    }
+                  }}
+                >
+                  <option value="">未关联</option>
+                  {productionPlans.map((item) => (
+                    <option key={item.id} value={item.id}>{item.planNumber}</option>
+                  ))}
+                </select>
+              </label>
+              {productionPlan ? (
+                <ProductionPlanAttachmentPanel
+                  attachment={productionPlan}
+                  previewUrl={productionPlanPreviewUrl}
+                  onOpen={() => setProductionPlanPreviewOpen(true)}
+                />
+              ) : (
+                <div className="production-plan-match__empty">
+                  <div><strong>没有匹配到计划单附件</strong><span>可先到附件库上传，再返回选择。</span></div>
+                  <Link to="/production-plans" className="button button--ghost button--small">打开附件库</Link>
+                </div>
+              )}
+            </div>
           </section>
 
           <section className="panel panel--compact operation-panel" id="operation-picker">
