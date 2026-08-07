@@ -41,7 +41,7 @@ fi
 docker compose -f "${COMPOSE_FILE}" up -d --no-build --force-recreate app
 
 for ((i = 1; i <= MAX_RETRIES; i++)); do
-  if curl -fsS "${HEALTH_URL}" >/tmp/steel-process-card-health.json 2>/dev/null; then
+  if curl --noproxy '*' -fsS "${HEALTH_URL}" >/tmp/steel-process-card-health.json 2>/dev/null; then
     echo "Health check passed:"
     cat /tmp/steel-process-card-health.json
     echo
