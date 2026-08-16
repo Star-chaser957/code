@@ -107,11 +107,14 @@ function buildFocusCards(cards: ProcessCardListItem[], mode: DashboardMode): Foc
     }
 
     if (mode === 'review') {
-      return card.status === 'pending_review' || card.status === 'rejected_to_review';
+      return (
+        card.permissions.canHandleCurrentStep &&
+        (card.status === 'pending_review' || card.status === 'rejected_to_review')
+      );
     }
 
     if (mode === 'approve') {
-      return card.status === 'pending_approve';
+      return card.permissions.canHandleCurrentStep && card.status === 'pending_approve';
     }
 
     return true;
@@ -141,9 +144,9 @@ function resolveDashboardMode(
   }
 
   const weightedRoles: Array<{ mode: Exclude<DashboardMode, 'admin' | 'viewer'>; score: number }> = [
-    { mode: 'prepare', score: overview.tasks.draftCount + overview.tasks.returnedCount },
-    { mode: 'confirm', score: overview.tasks.pendingConfirmCount },
-    { mode: 'review', score: overview.tasks.pendingReviewCount },
+    { mode: 'prepare', score: overview.tasks.draftCount + overview.tasks.returnedPrepareCount },
+    { mode: 'confirm', score: overview.tasks.pendingConfirmCount + overview.tasks.returnedConfirmCount },
+    { mode: 'review', score: overview.tasks.pendingReviewCount + overview.tasks.returnedReviewCount },
     { mode: 'approve', score: overview.tasks.pendingApproveCount },
   ];
 
@@ -224,10 +227,10 @@ function createModeConfig(
         description: '重点看我的草稿和被退回的工艺卡，快速继续录入或修改后重新提交。',
         highlightLabel: '当前待编制与待修改',
         highlightDescription: '包括草稿和退回到编制的单据，建议优先处理最近更新的任务。',
-        highlightValue: overview.tasks.draftCount + overview.tasks.returnedCount,
+        highlightValue: overview.tasks.draftCount + overview.tasks.returnedPrepareCount,
         taskCards: [
           { label: '我的草稿', value: overview.tasks.draftCount },
-          { label: '退回待修改', value: overview.tasks.returnedCount },
+          { label: '退回待修改', value: overview.tasks.returnedPrepareCount },
           { label: '本周新建', value: overview.stats.weekCreated },
           { label: '本月新建', value: overview.stats.monthCreated },
         ],
@@ -254,10 +257,10 @@ function createModeConfig(
         description: '优先查看待确认单据，可直接修订后提交审核或退回编制。',
         highlightLabel: '当前待确认数量',
         highlightDescription: '建议优先处理交期近、最近更新较多的单据。',
-        highlightValue: overview.tasks.pendingConfirmCount,
+        highlightValue: overview.tasks.pendingConfirmCount + overview.tasks.returnedConfirmCount,
         taskCards: [
           { label: '待确认', value: overview.tasks.pendingConfirmCount },
-          { label: '退回待处理', value: overview.tasks.returnedCount },
+          { label: '退回待处理', value: overview.tasks.returnedConfirmCount },
           { label: '今日新建', value: overview.stats.todayCreated },
           { label: '本周新建', value: overview.stats.weekCreated },
         ],
@@ -277,12 +280,12 @@ function createModeConfig(
         description: '重点关注待审核单据，建议通过审阅打印版式后完成审核意见。',
         highlightLabel: '当前待审核数量',
         highlightDescription: '优先处理停留时间较长或临近交付的工艺卡。',
-        highlightValue: overview.tasks.pendingReviewCount,
+        highlightValue: overview.tasks.pendingReviewCount + overview.tasks.returnedReviewCount,
         taskCards: [
           { label: '待审核', value: overview.tasks.pendingReviewCount },
+          { label: '退回待审核', value: overview.tasks.returnedReviewCount },
           { label: '已批准总数', value: overview.stats.approvedCount },
           { label: '本周新建', value: overview.stats.weekCreated },
-          { label: '本月新建', value: overview.stats.monthCreated },
         ],
         shortcuts: commonShortcuts,
         focusTitle: '待审核单据',
@@ -370,6 +373,10 @@ export function DashboardPage() {
             operationCode: '',
             heatTreatmentType: '',
             status: '',
+            sortBy: 'updatedAt',
+            sortDirection: 'desc',
+            page: 1,
+            pageSize: 100,
           }),
         ]);
 

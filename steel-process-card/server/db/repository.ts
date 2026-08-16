@@ -1650,15 +1650,23 @@ export class ProcessCardRepository {
       });
     }
 
-    return items
-      .sort((left, right) => {
-        if (left.isRead !== right.isRead) {
-          return Number(left.isRead) - Number(right.isRead);
-        }
+    const sortedItems = items.sort((left, right) => {
+      if (left.isRead !== right.isRead) {
+        return Number(left.isRead) - Number(right.isRead);
+      }
 
-        return right.createdAt.localeCompare(left.createdAt);
-      })
-      .slice(0, 12);
+      return right.createdAt.localeCompare(left.createdAt);
+    });
+    const todoItems = sortedItems.filter((item) => item.type === 'todo');
+    const noticeItems = sortedItems.filter((item) => item.type === 'notice').slice(0, 12);
+
+    return [...todoItems, ...noticeItems].sort((left, right) => {
+      if (left.isRead !== right.isRead) {
+        return Number(left.isRead) - Number(right.isRead);
+      }
+
+      return right.createdAt.localeCompare(left.createdAt);
+    });
   }
 
   async getNotificationOverview(viewer: AuthUser): Promise<NotificationOverview> {
@@ -2073,21 +2081,21 @@ export class ProcessCardRepository {
         ? cardRows.filter(
             (row) =>
               row.created_by_user_id === viewer.id &&
-              (row.status === 'draft' || row.status === 'rejected_to_prepare'),
+              row.status === 'draft',
           ).length
         : 0,
       pendingConfirmCount: hasWorkflowRole(viewer, 'confirm') || isAdmin(viewer)
         ? cardRows.filter(
             (row) =>
               row.current_handler_user_id === viewer.id &&
-              (row.status === 'pending_confirm' || row.status === 'rejected_to_confirm'),
+              row.status === 'pending_confirm',
           ).length
         : 0,
       pendingReviewCount: hasWorkflowRole(viewer, 'review') || isAdmin(viewer)
         ? cardRows.filter(
             (row) =>
               row.current_handler_user_id === viewer.id &&
-              (row.status === 'pending_review' || row.status === 'rejected_to_review'),
+              row.status === 'pending_review',
           ).length
         : 0,
       pendingApproveCount: hasWorkflowRole(viewer, 'approve') || isAdmin(viewer)
@@ -2095,15 +2103,35 @@ export class ProcessCardRepository {
             (row) => row.current_handler_user_id === viewer.id && row.status === 'pending_approve',
           ).length
         : 0,
-      returnedCount: cardRows.filter(
-        (row) =>
-          row.last_return_comment.trim() &&
-          ((row.status === 'rejected_to_prepare' && row.created_by_user_id === viewer.id) ||
-            (row.status === 'rejected_to_confirm' && row.confirmed_user_id === viewer.id) ||
-            (row.status === 'rejected_to_review' && row.reviewed_user_id === viewer.id)),
-      ).length,
+      returnedPrepareCount: hasWorkflowRole(viewer, 'prepare') || isAdmin(viewer)
+        ? cardRows.filter(
+            (row) =>
+              row.status === 'rejected_to_prepare' &&
+              row.created_by_user_id === viewer.id &&
+              row.current_handler_user_id === viewer.id,
+          ).length
+        : 0,
+      returnedConfirmCount: hasWorkflowRole(viewer, 'confirm') || isAdmin(viewer)
+        ? cardRows.filter(
+            (row) =>
+              row.status === 'rejected_to_confirm' &&
+              row.confirmed_user_id === viewer.id &&
+              row.current_handler_user_id === viewer.id,
+          ).length
+        : 0,
+      returnedReviewCount: hasWorkflowRole(viewer, 'review') || isAdmin(viewer)
+        ? cardRows.filter(
+            (row) =>
+              row.status === 'rejected_to_review' &&
+              row.reviewed_user_id === viewer.id &&
+              row.current_handler_user_id === viewer.id,
+          ).length
+        : 0,
+      returnedCount: 0,
       totalPendingCount: 0,
     };
+    tasks.returnedCount =
+      tasks.returnedPrepareCount + tasks.returnedConfirmCount + tasks.returnedReviewCount;
     tasks.totalPendingCount =
       tasks.draftCount +
       tasks.pendingConfirmCount +
@@ -3037,29 +3065,34 @@ export class ProcessCardRepository {
       params,
     );
 
-    const items = rows.map((row) => ({
-      id: row.id,
-      cardNo: row.card_no,
-      planNumber: row.plan_number,
-      customerCode: row.customer_code,
-      productName: row.product_name,
-      material: row.material,
-      specification: row.specification,
-      deliveryDate: row.delivery_date,
-      updatedAt: row.updated_at,
-      status: row.status,
-      currentStep: row.current_step,
-      currentHandlerName: row.current_handler_name,
-      versionNo: row.version_no,
-      lastReturnComment: row.last_return_comment,
-      enabledOperationCodes: csvToArray(row.enabled_operation_codes),
-      heatTreatmentTypes: csvToArray(row.heat_treatment_types),
-      permissions: {
-        canEdit: getPermissions(row, viewer).canEdit,
-        canDelete: getPermissions(row, viewer).canDelete,
-        canWithdrawReview: getAvailableActions(row, viewer).includes('withdraw_review'),
-      },
-    }));
+    const items = rows.map((row) => {
+      const availableActions = getAvailableActions(row, viewer);
+
+      return {
+        id: row.id,
+        cardNo: row.card_no,
+        planNumber: row.plan_number,
+        customerCode: row.customer_code,
+        productName: row.product_name,
+        material: row.material,
+        specification: row.specification,
+        deliveryDate: row.delivery_date,
+        updatedAt: row.updated_at,
+        status: row.status,
+        currentStep: row.current_step,
+        currentHandlerName: row.current_handler_name,
+        versionNo: row.version_no,
+        lastReturnComment: row.last_return_comment,
+        enabledOperationCodes: csvToArray(row.enabled_operation_codes),
+        heatTreatmentTypes: csvToArray(row.heat_treatment_types),
+        permissions: {
+          canEdit: getPermissions(row, viewer).canEdit,
+          canDelete: getPermissions(row, viewer).canDelete,
+          canWithdrawReview: availableActions.includes('withdraw_review'),
+          canHandleCurrentStep: availableActions.some((action) => action !== 'withdraw_review'),
+        },
+      };
+    });
 
     return {
       items,

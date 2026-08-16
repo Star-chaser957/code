@@ -207,6 +207,7 @@ export type ProcessCardListItem = {
   heatTreatmentTypes: string[];
   permissions: Pick<CardPermissions, 'canEdit' | 'canDelete'> & {
     canWithdrawReview: boolean;
+    canHandleCurrentStep: boolean;
   };
 };
 
@@ -310,6 +311,9 @@ export type DashboardTaskSummary = {
   pendingConfirmCount: number;
   pendingReviewCount: number;
   pendingApproveCount: number;
+  returnedPrepareCount: number;
+  returnedConfirmCount: number;
+  returnedReviewCount: number;
   returnedCount: number;
   totalPendingCount: number;
 };
