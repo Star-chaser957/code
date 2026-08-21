@@ -261,35 +261,57 @@ export function EditorPage() {
   }, [card, productionPlan?.id, productionPlans]);
 
   useEffect(() => {
-    if (isEditMode || !card?.productName.trim()) {
+    const customerCode = card?.customerCode.trim() ?? '';
+    const productName = card?.productName.trim() ?? '';
+    if (isEditMode || (!customerCode && !productName)) {
       setPrefillCandidates([]);
       setSelectedPrefillId('');
       setPrefillLoading(false);
       return;
     }
 
+    let active = true;
     const handle = window.setTimeout(() => {
       setPrefillLoading(true);
       void api
-        .getProductPrefill(card.productName.trim())
+        .getProcessCardPrefills({ customerCode, productName })
         .then((response) => {
+          if (!active) {
+            return;
+          }
           setPrefillCandidates(response.items);
           setSelectedPrefillId(response.items[0]?.sourceCardId ?? '');
         })
         .catch(() => {
+          if (!active) {
+            return;
+          }
           setPrefillCandidates([]);
           setSelectedPrefillId('');
         })
-        .finally(() => setPrefillLoading(false));
+        .finally(() => {
+          if (active) {
+            setPrefillLoading(false);
+          }
+        });
     }, 350);
 
-    return () => window.clearTimeout(handle);
-  }, [card?.productName, isEditMode]);
+    return () => {
+      active = false;
+      window.clearTimeout(handle);
+    };
+  }, [card?.customerCode, card?.productName, isEditMode]);
 
   const selectedPrefillCandidate = useMemo(
     () => prefillCandidates.find((item) => item.sourceCardId === selectedPrefillId) ?? null,
     [prefillCandidates, selectedPrefillId],
   );
+
+  const prefillMatchDescription = card?.customerCode.trim() && card.productName.trim()
+    ? '同时符合当前客户代码和产品名称'
+    : card?.customerCode.trim()
+      ? '符合当前客户代码'
+      : '符合当前产品名称';
 
   const enabledOperations = useMemo(
     () => sortOperations((card?.operations ?? []).filter((item) => item.enabled)),
@@ -719,16 +741,16 @@ export function EditorPage() {
               ))}
             </div>
 
-            {!isEditMode && canEdit && card.productName.trim() ? (
+            {!isEditMode && canEdit && (card.customerCode.trim() || card.productName.trim()) ? (
               <div className="prefill-card">
                 <div>
-                  <strong>同产品历史工序配置</strong>
+                  <strong>历史工序配置</strong>
                   <p>
                     {prefillLoading
-                      ? '正在查询同产品历史工艺卡...'
+                      ? '正在查询匹配的历史工艺卡...'
                       : prefillCandidates.length > 0
                         ? `找到 ${prefillCandidates.length} 张历史工艺卡，请选择其中一张带入。`
-                        : '当前还没有找到同产品名称的历史工艺卡。'}
+                        : `当前没有找到${prefillMatchDescription}的历史工艺卡。`}
                   </p>
                 </div>
 
@@ -739,7 +761,7 @@ export function EditorPage() {
                       <select value={selectedPrefillId} onChange={(event) => setSelectedPrefillId(event.target.value)}>
                         {prefillCandidates.map((item) => (
                           <option key={item.sourceCardId} value={item.sourceCardId}>
-                            {item.material || '未填写材质'} | 客户代码：{item.customerCode || '未填写'}
+                            材质：{item.material || '未填写'} | 客户代码：{item.customerCode || '未填写'} | 产品名称：{item.productName || '未填写'}
                           </option>
                         ))}
                       </select>

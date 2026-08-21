@@ -3123,20 +3123,35 @@ export class ProcessCardRepository {
     );
   }
 
-  async findProductPrefills(productName: string): Promise<ProductPrefillCandidate[]> {
-    const normalized = productName.trim();
-    if (!normalized) {
+  async findProcessCardPrefills(filters: {
+    customerCode?: string;
+    productName?: string;
+  }): Promise<ProductPrefillCandidate[]> {
+    const customerCode = filters.customerCode?.trim() ?? '';
+    const productName = filters.productName?.trim() ?? '';
+    if (!customerCode && !productName) {
       return [];
+    }
+
+    const conditions: string[] = [];
+    const parameters: string[] = [];
+    if (customerCode) {
+      conditions.push('TRIM(customer_code) = ?');
+      parameters.push(customerCode);
+    }
+    if (productName) {
+      conditions.push('TRIM(product_name) = ?');
+      parameters.push(productName);
     }
 
     const cards = this.sqlite.query<CardRow>(
       `
         SELECT *
         FROM process_cards
-        WHERE TRIM(product_name) = ?
+        WHERE ${conditions.join(' AND ')}
         ORDER BY updated_at DESC
       `,
-      [normalized],
+      parameters,
     );
 
     const definitions = await this.getOperationDefinitions();

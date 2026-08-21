@@ -246,10 +246,18 @@ export const api = {
   deleteProductionPlan: async (id: string) =>
     request<{ success: boolean }>(`/api/production-plans/${id}`, { method: 'DELETE' }),
 
-  getProductPrefill: async (productName: string) =>
-    request<{ items: ProductPrefillCandidate[] }>(
-      `/api/process-cards/prefill/by-product-name?productName=${encodeURIComponent(productName)}`,
-    ),
+  getProcessCardPrefills: async (filters: { customerCode: string; productName: string }) => {
+    const query = new URLSearchParams();
+    if (filters.customerCode.trim()) {
+      query.set('customerCode', filters.customerCode.trim());
+    }
+    if (filters.productName.trim()) {
+      query.set('productName', filters.productName.trim());
+    }
+    return request<{ items: ProductPrefillCandidate[] }>(
+      `/api/process-cards/prefill?${query.toString()}`,
+    );
+  },
 
   createProcessCard: async (payload: ProcessCardPayload) =>
     request<ProcessCardPayload>('/api/process-cards', {

@@ -20,15 +20,18 @@ export const processCardRoutes: FastifyPluginAsync = async (fastify) => {
     return repository.listProcessCards(query, user);
   });
 
-  fastify.get('/prefill/by-product-name', async (request, reply) => {
+  fastify.get('/prefill', async (request, reply) => {
     const user = await requireAuth(request, reply);
     if (!user) {
       return;
     }
 
-    const { productName = '' } = request.query as { productName?: string };
+    const { customerCode = '', productName = '' } = request.query as {
+      customerCode?: string;
+      productName?: string;
+    };
     return {
-      items: await repository.findProductPrefills(productName),
+      items: await repository.findProcessCardPrefills({ customerCode, productName }),
     };
   });
 
